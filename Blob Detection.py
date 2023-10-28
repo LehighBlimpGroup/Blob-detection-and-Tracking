@@ -2,9 +2,9 @@
 Author       : Hanqing Qi & Karen Li & Jiawei Xu
 Date         : 2023-10-20 17:16:42
 LastEditors  : Jiawei Xu
-LastEditTime : 2023-10-24 0:38:54
+LastEditTime : 2023-10-27 0:38:54
 FilePath     :
-Description  : Send the blob detection data (cx, cy, w, h) and distance data to the esp32
+Description  : Send the blob detection data (cx, cy, w, h) to the esp32
 """
 
 import sensor, image, time
@@ -17,54 +17,43 @@ import mjpeg, pyb
 import random
 import math
 
-GREEN = [
-#         (40, 80, -45, -10, -5, 11),
-#         (30, 61, -27, -6, -10, 11),
-#         (32, 41, -29, -6, -20, -7)
-         (39, 53, -45, 1, -54, -5)
-#         (30, 70, -48, -5, 4, 40),
-#         (28, 41, -14, -8, 0, 16),
-#         (30, 45, -30, 0, 0, 10)
-         ]
-PURPLE = [
-#         (22, 42, 4, 32, -32, -13), # Lighter color
-#         (8, 29, 5, 13, -32, -5)    # Darker color
-         (11, 27, 11, 25, -49, -15) # Night
-]
+GREEN = [ (26, 38, -18, 0, -24, 1), (35, 58, -30, 2, -19, -4) ]
+PURPLE = [ (20, 24, 4, 15, -22, -7) ]
 
 def init_sensor_target(pixformat=sensor.RGB565, framesize=sensor.HQVGA, windowsize=None) -> None:
     sensor.reset()                        # Initialize the camera sensor.
     sensor.set_pixformat(pixformat)       # Set pixel format to RGB565 (or GRAYSCALE)
-    sensor.set_framesize(framesize)       # 160x120 resolution
+    sensor.set_framesize(framesize)
     if windowsize is not None:            # Set windowing to reduce the resolution of the image
         sensor.set_windowing(windowsize)
     sensor.skip_frames(time=1000)         # Let new settings take affect.
     sensor.set_auto_whitebal(False)
+    sensor.set_auto_exposure(False)
     sensor.__write_reg(0xfe, 0b00000000) # change to registers at page 0
     sensor.__write_reg(0x80, 0b10111100) # enable gamma, CC, edge enhancer, interpolation, de-noise
     sensor.__write_reg(0x81, 0b01101100) # enable BLK dither mode, low light Y stretch, autogray enable
     sensor.__write_reg(0x82, 0b00000100) # enable anti blur, disable AWB
-    # sensor.__write_reg(0x03, 0b00000000) # high bits of exposure control
-    # sensor.__write_reg(0x04, 0b01000000) # low bits of exposure control
-    sensor.__write_reg(0xb0, 0b01000000) # global gain
-    sensor.__write_reg(0xad, 0b01011000) # R ratio
-    sensor.__write_reg(0xae, 0b01011000) # G ratio
-    sensor.__write_reg(0xaf, 0b01110000) # B ratio
-    # # RGB gains
-    # sensor.__write_reg(0xa3, 0b11111100) # G gain odd
-    # sensor.__write_reg(0xa4, 0b11111100) # G gain even
-    # sensor.__write_reg(0xa5, 0b11110000) # R gain odd
-    # sensor.__write_reg(0xa6, 0b11110000) # R gain even
-    # sensor.__write_reg(0xa7, 0b11110000) # B gain odd
-    # sensor.__write_reg(0xa8, 0b11110000) # B gain even
-    # sensor.__write_reg(0xa9, 0b11111100) # G gain odd 2
-    # sensor.__write_reg(0xaa, 0b11111100) # G gain even 2
+    sensor.__write_reg(0x03, 0b00000011) # high bits of exposure control
+    sensor.__write_reg(0x04, 0b11110000) # low bits of exposure control
+    sensor.__write_reg(0xb0, 0b11110000) # global gain
+#    sensor.__write_reg(0xad, 0b01001100) # R ratio
+#    sensor.__write_reg(0xae, 0b01010100) # G ratio
+#    sensor.__write_reg(0xaf, 0b01101000) # B ratio
+    # RGB gains
+    sensor.__write_reg(0xa3, 0b01111000) # G gain odd
+    sensor.__write_reg(0xa4, 0b01111000) # G gain even
+    sensor.__write_reg(0xa5, 0b10000010) # R gain odd
+    sensor.__write_reg(0xa6, 0b10000010) # R gain even
+    sensor.__write_reg(0xa7, 0b10001000) # B gain odd
+    sensor.__write_reg(0xa8, 0b10001000) # B gain even
+    sensor.__write_reg(0xa9, 0b10000000) # G gain odd 2
+    sensor.__write_reg(0xaa, 0b10000000) # G gain even 2
     sensor.__write_reg(0xfe, 0b00000010) # change to registers at page 2
     # sensor.__write_reg(0xd0, 0b00000000) # change global saturation,
                                            # strangely constrained by auto saturation
-    sensor.__write_reg(0xd1, 0b01001000) # change Cb saturation
-    sensor.__write_reg(0xd2, 0b01010000) # change Cr saturation
-    sensor.__write_reg(0xd3, 0b01000000) # luma contrast
+    sensor.__write_reg(0xd1, 0b01000000) # change Cb saturation
+    sensor.__write_reg(0xd2, 0b01000000) # change Cr saturation
+    sensor.__write_reg(0xd3, 0b01001000) # luma contrast
     # sensor.__write_reg(0xd5, 0b00000000) # luma offset
     sensor.skip_frames(time=2000) # Let the camera adjust.
 
@@ -103,58 +92,103 @@ def find_max(blobs):
     return max_blob
 
 
-def blob_track(tracked_blob, thresholds, clock, show=True):
-    """ Detect blobs with tracking capabilities
-        :input: tracked_blob: a TrackedBlob class object
-                thresholds: the list of color thresholds we want to track
-                show: True if we want to visualize the tracked blobs
-                clock: clock
+def comp_new_threshold(statistics, mul_stdev=2):
+    """ Generating new thresholds based on detection statistics
+        l_low = l_mean - mul_stdev*l_stdev
+        l_high = l_mean + mul_stdev*l_stdev
+        a_low = a_mean - mul_stdev*a_stdev
+        a_high = a_mean - mul_stdev*a_stdev
+        b_low = b_mean - mul_stdev*b_stdev
+        b_high = b_mean - mul_stdev*b_stdev
     """
-    img = sensor.snapshot()
-    clock.tick()
-    blobs = img.find_blobs(PURPLE, merge=True,
-                           pixels_threshold=40,
-                           area_threshold=50,
-                           merge_distance=12,
-                           margin=20)
+    l_mean = statistics.l_mean()
+    l_stdev = statistics.l_stdev()
+    a_mean = statistics.a_mean()
+    a_stdev = statistics.a_stdev()
+    b_mean = statistics.b_mean()
+    b_stdev = statistics.b_stdev()
+    new_threshold = (l_mean - mul_stdev*l_stdev, l_mean + mul_stdev*l_stdev,
+                     a_mean - mul_stdev*a_stdev, a_mean - mul_stdev*a_stdev,
+                     b_mean - mul_stdev*b_stdev, b_mean - mul_stdev*b_stdev)
+    return new_threshold
 
-    # initialize the blob with the max blob in view if it is not initialized
-    if not tracked_blob.blob_history:
-        max_blob = find_max(blobs)
-        if max_blob:
-            red_led.on()
-            tracked_blob.reinit(max_blob)
-            # , norm_level=2,
-            # feature_dist_threshold=20,
-            # window_size = 5
+
+def comp_weighted_avg(vec1, vec2, w1=0.5, w2=0.5):
+    """ Weighted average, by default just normal average
+    """
+    avg = [int(w1*vec1[i] + w2*vec2[i]) for i in range(len(vec1))]
+    return tuple(avg)
+
+
+class BlobTracker:
+    """ BlobTracker class that initializes with a single TrackedBlob and tracks it
+        with dynamic threshold
+        TODO: track multiple blobs
+    """
+    def __init__(self, tracked_blob: TrackedBlob, thresholds, clock, show=True):
+        self.tracked_blob = tracked_blob
+        self.original_thresholds = [threshold for threshold in thresholds]
+        self.current_thresholds = [threshold for threshold in thresholds]
+        self.clock = clock
+        self.show = show
+
+    def track(self):
+        """ Detect blobs with tracking capabilities
+            :input: tracked_blob: a TrackedBlob class object
+                    thresholds: the list of color thresholds we want to track
+                    show: True if we want to visualize the tracked blobs
+                    clock: clock
+        """
+        # initialize the blob with the max blob in view if it is not initialized
+        if not self.tracked_blob.blob_history:
+            reference_blob, statistics = find_reference(self.clock,
+                                                        self.original_thresholds,
+                                                        time_show_us=0)
+            blue_led.on()
+            self.tracked_blob.reinit(reference_blob)
+            # update the adaptive threshold
+            new_threshold = comp_new_threshold(statistics, 2.5)
+            for i in range(len(self.current_thresholds)):
+                self.current_thresholds[i] = comp_weighted_avg(self.original_thresholds[i],
+                                                               new_threshold, 1.0, 0.0)
+
             # x, y, z = verbose_tracked_blob(img, tracked_blob, show)
-            if show:
-                x0, y0, w, h = [math.floor(tracked_blob.feature_vector[i]) for i in range(4)]
-                img.draw_rectangle(x0, y0, w, h)
-                st = "FPS: {}".format(str(round(clock.fps(),2)))
-                img.draw_string(0, 0, st, color = (255,0,0))
-            return tracked_blob.feature_vector, True
+            return self.tracked_blob.feature_vector, True
         else:
-            red_led.off()
-            return None, False
-    else:
-        # O.W. update the blob
-        red_led.on()
-        tracked_blob.update(blobs)
-        if tracked_blob.untracked_frames >= 30:
-            # if the blob fails to track for 30 frames, reset the tracking
-            tracked_blob.reset()
-            red_led.off()
-            print("boom!")
-            return None, False
-        else:
-            # x, y, z = verbose_tracked_blob(img, tracked_blob, show)
-            if show:
-                x0, y0, w, h = [math.floor(tracked_blob.feature_vector[i]) for i in range(4)]
-                img.draw_rectangle(x0, y0, w, h)
-                st = "FPS: {}".format(str(round(clock.fps(),2)))
-                img.draw_string(0, 0, st, color = (255,0,0))
-            return tracked_blob.feature_vector, True
+            # O.W. update the blob
+            img = sensor.snapshot()
+            self.clock.tick()
+            blobs = img.find_blobs(self.current_thresholds, merge=True,
+                                   pixels_threshold=75,
+                                   area_threshold=100,
+                                   merge_distance=20)
+            blue_led.on()
+            roi = self.tracked_blob.update(blobs)
+            if self.tracked_blob.untracked_frames >= 15:
+                # if the blob fails to track for 15 frames, reset the tracking
+                self.tracked_blob.reset()
+                blue_led.off()
+                print("boom!")
+                self.current_thresholds = [threshold for threshold in self.original_thresholds]
+                return None, False
+            else:
+                if roi:
+                    statistics = img.get_statistics(roi=roi)
+                    new_threshold = comp_new_threshold(statistics, 3.0)
+                    for i in range(len(self.current_thresholds)):
+                        self.current_thresholds[i] = comp_weighted_avg(self.current_thresholds[i],
+                                                                       new_threshold, 0.9999, 0.0001)
+                else:
+                    for i in range(len(self.current_thresholds)):
+                        self.current_thresholds[i] = comp_weighted_avg(self.original_thresholds[i],
+                                                                       self.current_thresholds[i])
+                # x, y, z = verbose_tracked_blob(img, tracked_blob, show)
+                if self.show:
+                    x0, y0, w, h = [math.floor(self.tracked_blob.feature_vector[i]) for i in range(4)]
+                    img.draw_rectangle(x0, y0, w, h)
+                    st = "FPS: {}".format(str(round(self.clock.fps(),2)))
+                    img.draw_string(0, 0, st, color = (255,0,0))
+                return self.tracked_blob.feature_vector, True
 
 
 def verbose_tracked_blob(img, tracked_blob, show):
@@ -216,8 +250,8 @@ class TrackedBlob:
         It has a window to compute the feature distance for enhanced smoothness
     """
     def __init__(self, init_blob, norm_level: int,
-                       feature_dist_threshold=300,
-                       window_size = 5, blob_id=0):
+                       feature_dist_threshold=100,
+                       window_size = 3, blob_id=0):
         self.blob_history = [init_blob]
         self.feature_vector = [init_blob.x(),
                                init_blob.y(),
@@ -285,7 +319,7 @@ class TrackedBlob:
         if blobs is None:
             # auto fail if None is fed
             self.untracked_frames += 1
-            return False
+            return None
 
         min_dist = 32767
         candidate_blob = None
@@ -299,7 +333,7 @@ class TrackedBlob:
         if min_dist < self.feature_dist_threshold:
             # update the feature history if the feature distance is below the threshold
             self.untracked_frames = 0
-            print("Successful Update! Distance: {min_dist}")
+            print("Successful Update! Distance: {}".format(min_dist))
             history_size = len(self.blob_history)
             self.blob_history.append(candidate_blob)
             feature = (candidate_blob.x(),
@@ -327,16 +361,18 @@ class TrackedBlob:
                     self.feature_vector[i] = (self.feature_vector[i]*self.window_size +
                         feature[i] - oldest_feature[i])/self.window_size
                 self.blob_history.pop(0)
-            return True
+            return candidate_blob.rect()
         else:
             self.untracked_frames += 1
-            return False
+            return None
 
 
 def find_reference(clock, thresholds,
                    density_threshold=0.3,
-                   roundness_threshold=0.4):
-    """ Find a reference blob that is dense and round
+                   roundness_threshold=0.4,
+                   time_show_us=50000):
+    """ Find a reference blob that is dense and round,
+        also return the color statistics in the shrunk bounding box
     """
     biggest_blob = None
     while not biggest_blob:
@@ -344,18 +380,21 @@ def find_reference(clock, thresholds,
         clock.tick()
         img = sensor.snapshot()
         b_blobs = img.find_blobs(thresholds, merge=True,
-                                 pixels_threshold=40,
-                                 area_threshold=50,
-                                 merge_distance=20,
-                                 margin=20)
+                                 pixels_threshold=75,
+                                 area_threshold=100,
+                                 merge_distance=20)
         for blob in b_blobs:
             # find a good initial blob by filtering out the not-so-dense and not-so-round blobs
-            if (blob.density() > density_threshold and blob.roundness() > roundness_threshold):
+            if (blob.density() > density_threshold and
+                blob.roundness() > roundness_threshold):
                 blob_list.append(blob)
 
         biggest_blob = find_max(blob_list)
-        draw_initial_blob(img, biggest_blob)
-    return TrackedBlob(biggest_blob, norm_level=1)
+
+    draw_initial_blob(img, biggest_blob, time_show_us)
+    statistics = img.get_statistics(roi=biggest_blob.rect())
+    return biggest_blob, statistics
+
 
 def checksum(arr, initial= 0):
     """ The last pair of byte is the checksum on iBus
@@ -368,7 +407,7 @@ def checksum(arr, initial= 0):
     chB = checksum & 0xFF
     return chA, chB
 
-def message_sent(arr, initial= 0):
+def send_blob_message(arr, initial= 0):
     pass
 
 
@@ -376,30 +415,32 @@ def message_sent(arr, initial= 0):
 if __name__ == "__main__":
     led_pin = Pin("PG12", Pin.OUT)
     led_pin.value(0)
-    red_led = pyb.LED(1)
+    blue_led = pyb.LED(3)
     clock = time.clock()
     # Sensor initialization
     init_sensor_target()
     # Initialize ToF sensor
-    tof = VL53L1X(I2C(2))
+    # tof = VL53L1X(I2C(2))
     # Initialize UART
     uart = UART("LP1", 115200, timeout_char=2000) # (TX, RX) = (P1, P0) = (PB14, PB15)
     # Find reference
     thresholds = PURPLE
-    tracked_blob = find_reference(clock, thresholds)
+    reference_blob, statistics = find_reference(clock, thresholds)
+    tracked_blob = TrackedBlob(reference_blob, norm_level=1, feature_dist_threshold=100)
+    blob_tracker = BlobTracker(tracked_blob, thresholds, clock)
 
 
     while True:
-        blob_track(tracked_blob, thresholds, clock)
+        blob_tracker.track()
         msg = bytearray(32)
         msg[0] = 0x20
         msg[1] = 0x40
         # x y w h
-        if tracked_blob.feature_vector:
-            x_value = int(tracked_blob.feature_vector[0])
-            y_value = int(tracked_blob.feature_vector[1])
-            w_value = int(tracked_blob.feature_vector[2])
-            h_value = int(tracked_blob.feature_vector[3])
+        if blob_tracker.tracked_blob.feature_vector:
+            x_value = int(blob_tracker.tracked_blob.feature_vector[0])
+            y_value = int(blob_tracker.tracked_blob.feature_vector[1])
+            w_value = int(blob_tracker.tracked_blob.feature_vector[2])
+            h_value = int(blob_tracker.tracked_blob.feature_vector[3])
             cx_msg = bytearray(x_value.to_bytes(2, 'little'))
             msg[2] = cx_msg[0]
             msg[3] = cx_msg[1]
@@ -422,7 +463,7 @@ if __name__ == "__main__":
             msg[8] = 0x0
             msg[9] = 0x0
         # distance
-        try: dis = tof.read()
+        try: dis = 9999 # tof.read()
         except: dis = 9999
         dis_msg = bytearray(dis.to_bytes(2, 'little'))
         msg[10] = dis_msg[0]
