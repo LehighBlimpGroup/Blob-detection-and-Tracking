@@ -19,6 +19,7 @@ import math
 
 GREEN = [ (26, 38, -18, 0, -24, 1), (35, 58, -30, 2, -19, -4) ]
 PURPLE = [ (20, 24, 4, 15, -22, -7) ]
+THRESHOLD_UPDATE_RATE = 0.0
 
 def init_sensor_target(pixformat=sensor.RGB565, framesize=sensor.HQVGA, windowsize=None) -> None:
     sensor.reset()                        # Initialize the camera sensor.
@@ -149,8 +150,9 @@ class BlobTracker:
             # update the adaptive threshold
             new_threshold = comp_new_threshold(statistics, 2.5)
             for i in range(len(self.current_thresholds)):
-                self.current_thresholds[i] = comp_weighted_avg(self.original_thresholds[i],
-                                                               new_threshold, 1.0, 0.0)
+                self.current_thresholds[i] = comp_weighted_avg(self.current_thresholds[i],
+                                                new_threshold, 1-THRESHOLD_UPDATE_RATE,
+                                                THRESHOLD_UPDATE_RATE)
 
             # x, y, z = verbose_tracked_blob(img, tracked_blob, show)
             return self.tracked_blob.feature_vector, True
@@ -177,7 +179,8 @@ class BlobTracker:
                     new_threshold = comp_new_threshold(statistics, 3.0)
                     for i in range(len(self.current_thresholds)):
                         self.current_thresholds[i] = comp_weighted_avg(self.current_thresholds[i],
-                                                                       new_threshold, 0.9999, 0.0001)
+                                                        new_threshold, 1-THRESHOLD_UPDATE_RATE,
+                                                        THRESHOLD_UPDATE_RATE)
                 else:
                     for i in range(len(self.current_thresholds)):
                         self.current_thresholds[i] = comp_weighted_avg(self.original_thresholds[i],
