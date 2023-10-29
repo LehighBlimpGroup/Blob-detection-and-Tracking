@@ -2,7 +2,7 @@
 Author       : Hanqing Qi & Karen Li & Jiawei Xu
 Date         : 2023-10-20 17:16:42
 LastEditors  : Jiawei Xu
-LastEditTime : 2023-10-27 0:38:54
+LastEditTime : 2023-10-28 21:50:24
 FilePath     :
 Description  : Send the blob detection data (cx, cy, w, h) to the esp32
 """
@@ -17,9 +17,62 @@ import mjpeg, pyb
 import random
 import math
 
-GREEN = [ (26, 38, -18, 0, -24, 1), (35, 58, -30, 2, -19, -4) ]
-PURPLE = [ (20, 24, 4, 15, -22, -7) ]
+GREEN = [(26, 38, -18, 0, -24, 1), (35, 58, -30, 2, -19, -4)]
+PURPLE = [(20, 24, 4, 15, -22, -7)]
 THRESHOLD_UPDATE_RATE = 0.0
+
+
+class Tracking_ROI:
+    """ class Tracking_ROI:
+        A square tracking window class that takes in new detection
+        bounding box and adjust ROI for next detection
+    """
+    def __init__(self, x0=40, y0=0,
+                 max_windowsize=240,
+                 min_windowsize=20,
+                 forgetting_factor=0.5):
+        self.roi = [x0, y0, max_windowsize, max_windowsize]
+        self.x0 = x0
+        self.y0 = y0
+        self.max_windowsize = max_windowsize
+        self.min_windowsize = min_windowsize
+        self.ff = forgetting_factor
+        self.previous_success = False
+
+
+    def update(self, detection=False, x=None, y=None, w=None, h=None):
+        if detection == False:
+            # failed detection result in maximum tracking box
+            self.roi[0] = (1 - self.ff)*self.roi[0] + self.ff*self.x0
+            self.roi[1] = (1 - self.ff)*self.roi[1] + self.ff*self.y0
+            self.roi[2] = (1 - self.ff)*self.roi[2] + self.ff*self.max_windowsize
+            self.roi[3] = (1 - self.ff)*self.roi[3] + self.ff*self.max_windowsize
+            self.previous_success = False
+        else:
+            # detection = True
+            if x == None:
+                return
+            elif self.previous_success == False:
+                self.previous_success == True
+                self.roi[0] = (1 - self.ff)*self.roi[0] + self.ff*0.8*x
+                self.roi[1] = (1 - self.ff)*self.roi[1] + self.ff*0.8*y
+                self.roi[2] = (1 - self.ff)*self.roi[2] + self.ff*max(1.25*w, self.min_windowsize)
+                self.roi[3] = (1 - self.ff)*self.roi[3] + self.ff*max(1.25*h, self.min_windowsize)
+            else:
+                self.roi[0] = (1 - self.ff)*self.roi[0] + self.ff*min([self.roi[0], 0.8*x])
+                self.roi[1] = (1 - self.ff)*self.roi[1] + self.ff*min([self.roi[1], 0.8*y])
+                self.roi[2] = (1 - self.ff)*self.roi[2] + self.ff*max([self.roi[2], 0.8*x + 1.25*w - self.roi[2]])
+                self.roi[3] = (1 - self.ff)*self.roi[3] + self.ff*max([self.roi[3], 0.8*y + 1.25*h - self.roi[3]])
+        # corner case
+        if self.roi[0] + self.roi[2] > self.x0*2+self.max_windowsize:
+            self.roi[2] = self.x0*2 + self.max_windowsize - self.roi[0]
+        if self.roi[1] + self.roi[3] > self.y0*2+self.max_windowsize:
+            self.roi[3] = self.y0*2 + self.max_windowsize - self.roi[1]
+        print([int(self.roi[i]) for i in range(4)])
+
+    def get_roi(self):
+        return [int(self.roi[i]) for i in range(4)]
+
 
 def init_sensor_target(pixformat=sensor.RGB565, framesize=sensor.HQVGA, windowsize=None) -> None:
     sensor.reset()                        # Initialize the camera sensor.
@@ -132,6 +185,7 @@ class BlobTracker:
         self.current_thresholds = [threshold for threshold in thresholds]
         self.clock = clock
         self.show = show
+        self.roi = Tracking_ROI(forgetting_factor=0.1)
 
     def track(self):
         """ Detect blobs with tracking capabilities
@@ -148,13 +202,17 @@ class BlobTracker:
             blue_led.on()
             self.tracked_blob.reinit(reference_blob)
             # update the adaptive threshold
-            new_threshold = comp_new_threshold(statistics, 2.5)
+            new_threshold = comp_new_threshold(statistics, 2.0)
             for i in range(len(self.current_thresholds)):
                 self.current_thresholds[i] = comp_weighted_avg(self.current_thresholds[i],
                                                 new_threshold, 1-THRESHOLD_UPDATE_RATE,
                                                 THRESHOLD_UPDATE_RATE)
 
             # x, y, z = verbose_tracked_blob(img, tracked_blob, show)
+            self.roi.update(True, self.tracked_blob.feature_vector[0],
+                            self.tracked_blob.feature_vector[1],
+                            self.tracked_blob.feature_vector[2],
+                            self.tracked_blob.feature_vector[3])
             return self.tracked_blob.feature_vector, True
         else:
             # O.W. update the blob
@@ -163,9 +221,11 @@ class BlobTracker:
             blobs = img.find_blobs(self.current_thresholds, merge=True,
                                    pixels_threshold=75,
                                    area_threshold=100,
-                                   merge_distance=20)
+                                   merge_distance=20,
+                                   roi=self.roi.get_roi())
             blue_led.on()
             roi = self.tracked_blob.update(blobs)
+
             if self.tracked_blob.untracked_frames >= 15:
                 # if the blob fails to track for 15 frames, reset the tracking
                 self.tracked_blob.reset()
@@ -175,6 +235,7 @@ class BlobTracker:
                 return None, False
             else:
                 if roi:
+                    self.roi.update(True, roi[0], roi[1], roi[2], roi[3])
                     statistics = img.get_statistics(roi=roi)
                     new_threshold = comp_new_threshold(statistics, 3.0)
                     for i in range(len(self.current_thresholds)):
@@ -182,6 +243,7 @@ class BlobTracker:
                                                         new_threshold, 1-THRESHOLD_UPDATE_RATE,
                                                         THRESHOLD_UPDATE_RATE)
                 else:
+                    self.roi.update()
                     for i in range(len(self.current_thresholds)):
                         self.current_thresholds[i] = comp_weighted_avg(self.original_thresholds[i],
                                                                        self.current_thresholds[i])
@@ -189,7 +251,8 @@ class BlobTracker:
                 if self.show:
                     x0, y0, w, h = [math.floor(self.tracked_blob.feature_vector[i]) for i in range(4)]
                     img.draw_rectangle(x0, y0, w, h)
-                    st = "FPS: {}".format(str(round(self.clock.fps(),2)))
+                    img.draw_rectangle(self.roi.get_roi(), color=(255, 255, 0))
+                    st = "FPS: {}".format(str(round(self.clock.fps(), 2)))
                     img.draw_string(0, 0, st, color = (255,0,0))
                 return self.tracked_blob.feature_vector, True
 
