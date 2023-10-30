@@ -32,6 +32,8 @@ Both modes use the same moving-window-based tracking methods (see classes `Track
 6. Find colored blobs on `diff` with regions marked with `mask` masked out.
 
 ## Parameters
+TODO: the parameter list needs updates.
+
 This is a test example. However, there are several parameters you can tune to change the tracking behavior:
 1. `thresholds`: it determines the color to detect and track
 2. In function `find_reference`, `density_threshold` and `roundness_threshold=0.4`: they determine how strictly dense and round the initial blob needs to be.
