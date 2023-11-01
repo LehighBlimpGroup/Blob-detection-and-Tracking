@@ -44,3 +44,6 @@ This is a test example. However, there are several parameters you can tune to ch
 
 ## Pending:
 1. `id`: we would like to identify/distinguish different blobs.
+
+## `Thresholds.txt`
+We recorded the (manually-tuned) optimal color thresholds for balloon detection under different initial and ambient lighting consitions in this file.
