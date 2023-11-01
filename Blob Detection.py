@@ -428,7 +428,7 @@ def goal_blob_detection(goal_thresholds, isColored=False, edge_removal=True):
             extra_fb.to_grayscale().find_edges(image.EDGE_SIMPLE)
         else:
             extra_fb.find_edges(image.EDGE_SIMPLE)
-        edge_mask = extra_fb.dilate(3, 10).negate()
+        edge_mask = extra_fb.dilate(3, 3).negate()
 
     img.negate()
     blobs = blobs = img.find_blobs(goal_thresholds,
@@ -436,7 +436,7 @@ def goal_blob_detection(goal_thresholds, isColored=False, edge_removal=True):
                                    pixels_threshold=20,
                                    margin=10,
                                    merge=True,
-                                   mask=edge_mask)  
+                                   mask=edge_mask)
     sensor.dealloc_extra_fb()
     omv.disable_fb(False)
     img.flush()
@@ -448,7 +448,7 @@ def ball_blob_tracking(reference_blob,
                        thresholds,
                        clock,
                        norm_level=1,
-                       feature_dist_threshold=100):
+                       feature_dist_threshold=200):
     """ The blob tracker initialization for balloons
     """
     tracked_blob = TrackedBlob(reference_blob,
@@ -462,7 +462,7 @@ def goal_blob_tracking(reference_blob,
                        thresholds,
                        clock,
                        norm_level=1,
-                       feature_dist_threshold=100):
+                       feature_dist_threshold=300):
     """ The blob tracker initialization for goals
     """
     tracked_blob = TrackedBlob(reference_blob,
@@ -484,25 +484,27 @@ def init_sensor_target(isColored=True, framesize=sensor.HQVGA, windowsize=None) 
     sensor.skip_frames(time=1000)         # Let new settings take affect.
     sensor.set_auto_whitebal(False)
     sensor.set_auto_exposure(False)
+#    sensor.__write_reg(0xad, 0b01001100) # R ratio
+#    sensor.__write_reg(0xae, 0b01010100) # G ratio
+#    sensor.__write_reg(0xaf, 0b01101000) # B ratio
+    # RGB gains
     sensor.__write_reg(0xfe, 0b00000000) # change to registers at page 0
     sensor.__write_reg(0x80, 0b10111100) # enable gamma, CC, edge enhancer, interpolation, de-noise
     sensor.__write_reg(0x81, 0b01101100) # enable BLK dither mode, low light Y stretch, autogray enable
     sensor.__write_reg(0x82, 0b00000100) # enable anti blur, disable AWB
     sensor.__write_reg(0x03, 0b00000000) # high bits of exposure control
-    sensor.__write_reg(0x04, 0b11110000) # low bits of exposure control
-    sensor.__write_reg(0xb0, 0b11110000) # global gain
-#    sensor.__write_reg(0xad, 0b01001100) # R ratio
-#    sensor.__write_reg(0xae, 0b01010100) # G ratio
-#    sensor.__write_reg(0xaf, 0b01101000) # B ratio
+    sensor.__write_reg(0x04, 0b01110000) # low bits of exposure control
+    sensor.__write_reg(0xb0, 0b01100000) # global gain
+
     # RGB gains
-    sensor.__write_reg(0xa3, 0b01111000) # G gain odd
-    sensor.__write_reg(0xa4, 0b01111000) # G gain even
-    sensor.__write_reg(0xa5, 0b10000010) # R gain odd
-    sensor.__write_reg(0xa6, 0b10000010) # R gain even
-    sensor.__write_reg(0xa7, 0b10001000) # B gain odd
-    sensor.__write_reg(0xa8, 0b10001000) # B gain even
-    sensor.__write_reg(0xa9, 0b10000000) # G gain odd 2
-    sensor.__write_reg(0xaa, 0b10000000) # G gain even 2
+    sensor.__write_reg(0xa3, 0b01110000) # G gain odd
+    sensor.__write_reg(0xa4, 0b01110000) # G gain even
+    sensor.__write_reg(0xa5, 0b10000000) # R gain odd
+    sensor.__write_reg(0xa6, 0b10000000) # R gain even
+    sensor.__write_reg(0xa7, 0b10010000) # B gain odd
+    sensor.__write_reg(0xa8, 0b10010000) # B gain even
+    sensor.__write_reg(0xa9, 0b10001000) # G gain odd 2
+    sensor.__write_reg(0xaa, 0b10001000) # G gain even 2
     sensor.__write_reg(0xfe, 0b00000010) # change to registers at page 2
     # sensor.__write_reg(0xd0, 0b00000000) # change global saturation,
                                            # strangely constrained by auto saturation
@@ -585,8 +587,8 @@ def two_norm_dist(v1, v2):
 
 
 def find_reference(clock, thresholds,
-                   density_threshold=0.3,
-                   roundness_threshold=0.4,
+                   density_threshold=0.25,
+                   roundness_threshold=0.35,
                    time_show_us=50000,
                    blink=False):
     """ Find a reference blob that is dense and round,
@@ -601,8 +603,8 @@ def find_reference(clock, thresholds,
         else:
             img = sensor.snapshot()
             b_blobs = img.find_blobs(thresholds, merge=True,
-                                     pixels_threshold=75,
-                                     area_threshold=100,
+                                     pixels_threshold=30,
+                                     area_threshold=50,
                                      margin=20,
                                      x_stride=1,
                                      y_stride=1)
@@ -629,16 +631,29 @@ def checksum(arr, initial= 0):
     chB = checksum & 0xFF
     return chA, chB
 
-def send_blob_message(arr, initial= 0):
-    pass
 
+def IBus_message(message_arr_to_send):
+    msg = bytearray(32)
+    msg[0] = 0x20
+    msg[1] = 0x40
+    for i in range(len(message_arr_to_send)):
+        msg_byte_tuple = message_arr_to_send[i]
+        msg_byte_tuple = bytearray(message.to_bytes(2, 'little'))
+        msg[int(2*i + 2)] = msg_byte_tuple[0]
+        msg[int(2*i + 3)] = msg_byte_tuple[1]
+
+    # Perform the checksume
+    chA, chB = checksum(msg[:-2], 0)
+    msg[-1] = chA
+    msg[-2] = chB
+    return msg
 
 
 if __name__ == "__main__":
     ### Macros
-    GREEN = [(26, 38, -18, 0, -24, 1), (35, 58, -30, 2, -19, -4)]
-    PURPLE = [(10, 22, 4, 22, -31, -6)]
-    GRAY = [(0, 50)]
+    GREEN = [(31, 43, -36, -14, 10, 28)]
+    PURPLE = [(35, 52, -8, 10, -33, -3)]
+    GRAY = [(0, 20)]
     THRESHOLD_UPDATE_RATE = 0.0
     WAIT_TIME_US = 50000
     ### End Macros
@@ -649,25 +664,27 @@ if __name__ == "__main__":
     green_led = pyb.LED(2)
     blue_led = pyb.LED(3)
     clock = time.clock()
-    # Sensor initialization
-    init_sensor_target(isColored=False)
     # Initialize ToF sensor
     # tof = VL53L1X(I2C(2))
     # Initialize UART
     uart = UART("LP1", 115200, timeout_char=2000) # (TX, RX) = (P1, P0) = (PB14, PB15)
+    # Sensor initialization
+    # init_sensor_target(isColored=True)
+    init_sensor_target(isColored=False)
     # Find reference
     thresholds = GRAY
-    reference_blob, statistics = find_reference(clock, thresholds, blink=True)
-    # blob_tracker = ball_blob_tracking(reference_blob, thresholds, clock)
-    goal_tracker = goal_blob_tracking(reference_blob, thresholds, clock)
+    reference_blob, statistics = find_reference(clock, thresholds, roundness_threshold=0.55, blink=True)
+    goal_tracker = goal_blob_tracking(reference_blob, thresholds, clock, 200)
+    # thresholds = GREEN
+    # reference_blob, statistics = find_reference(clock, thresholds, blink=False)
+    # blob_tracker = ball_blob_tracking(reference_blob, thresholds, clock, 300)
 
     while True:
         # blob_tracker.track()
         goal_tracker.track()
-        msg = bytearray(32)
-        msg[0] = 0x20
-        msg[1] = 0x40
-        # x y w h
+        # if blob_tracker.tracked_blob.feature_vector:
+        # roi = blob_tracker.roi.get_roi()
+        # feature_vec = blob_tracker.tracked_blob.feature_vector
         if goal_tracker.tracked_blob.feature_vector:
             roi = goal_tracker.roi.get_roi()
             feature_vec = goal_tracker.tracked_blob.feature_vector
@@ -675,36 +692,12 @@ if __name__ == "__main__":
             y_value = roi[1] + roi[3]//2
             w_value = int(feature_vec[2])
             h_value = int(feature_vec[3])
-            cx_msg = bytearray(x_value.to_bytes(2, 'little'))
-            msg[2] = cx_msg[0]
-            msg[3] = cx_msg[1]
-            cy_msg = bytearray(y_value.to_bytes(2, 'little'))
-            msg[4] = cy_msg[0]
-            msg[5] = cy_msg[1]
-            w_msg = bytearray(w_value.to_bytes(2, 'little'))
-            msg[6] = w_msg[0]
-            msg[7] = w_msg[1]
-            h_msg = bytearray(h_value.to_bytes(2, 'little'))
-            msg[8] = h_msg[0]
-            msg[9] = h_msg[1]
+            msg = IBus_message([x_value, y_value, w_value, h_value])
         else:
-            msg[2] = 0x0
-            msg[3] = 0x0
-            msg[4] = 0x0
-            msg[5] = 0x0
-            msg[6] = 0x0
-            msg[7] = 0x0
-            msg[8] = 0x0
-            msg[9] = 0x0
-        # distance
-        try: dis = 9999 # tof.read()
-        except: dis = 9999
-        dis_msg = bytearray(dis.to_bytes(2, 'little'))
-        msg[10] = dis_msg[0]
-        msg[11] = dis_msg[1]
-        # Perform the checksume
-        chA, chB = checksum(msg[:-2], 0)
-        msg[-1] = chA
-        msg[-2] = chB
+            msg = IBus_message([0, 0, 0, 0])
 
-        uart.write(msg)         # send 32 byte message
+        # send 32 byte message
+        uart.write(msg)
+        # receive 32 byte message
+        if uart.any():
+            received = uart.read()
