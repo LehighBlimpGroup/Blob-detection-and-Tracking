@@ -74,187 +74,6 @@ class Tracking_ROI:
         return [int(self.roi[i]) for i in range(4)]
 
 
-class BlobTracker:
-    """ BlobTracker class that initializes with a single TrackedBlob
-        and tracks it with dynamic threshold
-        TODO: track multiple blobs
-    """
-
-    def __init__(self, tracked_blob: TrackedBlob, thresholds, clock, show=True):
-        self.tracked_blob = tracked_blob
-        self.original_thresholds = [threshold for threshold in thresholds]
-        self.current_thresholds = [threshold for threshold in thresholds]
-        self.clock = clock
-        self.show = show
-        self.roi = Tracking_ROI(forgetting_factor=0.1)
-
-    def track(self):
-        """ Detect blobs with tracking capabilities
-            :input: tracked_blob: a TrackedBlob class object
-                    thresholds: the list of color thresholds we want to track
-                    show: True if we want to visualize the tracked blobs
-                    clock: clock
-        """
-        # initialize the blob with the max blob in view if it is not initialized
-        if not self.tracked_blob.blob_history:
-            reference_blob, statistics = find_reference(self.clock,
-                                                        self.original_thresholds,
-                                                        time_show_us=0)
-            blue_led.on()
-            self.tracked_blob.reinit(reference_blob)
-            # update the adaptive threshold
-            new_threshold = comp_new_threshold(statistics, 2.0)
-            for i in range(len(self.current_thresholds)):
-                self.current_thresholds[i] = comp_weighted_avg(self.current_thresholds[i],
-                                                new_threshold, 1-THRESHOLD_UPDATE_RATE,
-                                                THRESHOLD_UPDATE_RATE)
-
-            # x, y, z = verbose_tracked_blob(img, tracked_blob, show)
-            self.roi.update(True, self.tracked_blob.feature_vector[0],
-                            self.tracked_blob.feature_vector[1],
-                            self.tracked_blob.feature_vector[2],
-                            self.tracked_blob.feature_vector[3])
-            return self.tracked_blob.feature_vector, True
-        else:
-            # O.W. update the blob
-            img = sensor.snapshot()
-            self.clock.tick()
-            blobs = img.find_blobs(self.current_thresholds, merge=True,
-                                   pixels_threshold=75,
-                                   area_threshold=100,
-                                   margin=20,
-                                   roi=self.roi.get_roi(),
-                                   x_stride=1,
-                                   y_stride=1)
-            blue_led.on()
-            roi = self.tracked_blob.update(blobs)
-
-            if self.tracked_blob.untracked_frames >= 15:
-                # if the blob fails to track for 15 frames, reset the tracking
-                red_led.off()
-                green_led.on()
-                self.tracked_blob.reset()
-                # self.roi.reset()
-                blue_led.off()
-                print("boom!")
-                self.current_thresholds = [threshold for threshold in self.original_thresholds]
-                return None, False
-            else:
-                if roi:
-                    green_led.off()
-                    red_led.off()
-                    self.roi.update(True, roi[0], roi[1], roi[2], roi[3])
-                    statistics = img.get_statistics(roi=roi)
-                    new_threshold = comp_new_threshold(statistics, 3.0)
-                    for i in range(len(self.current_thresholds)):
-                        self.current_thresholds[i] = comp_weighted_avg(self.current_thresholds[i],
-                                                        new_threshold, 1-THRESHOLD_UPDATE_RATE,
-                                                        THRESHOLD_UPDATE_RATE)
-                else:
-                    green_led.off()
-                    red_led.on()
-                    self.roi.update()
-                    for i in range(len(self.current_thresholds)):
-                        self.current_thresholds[i] = comp_weighted_avg(self.original_thresholds[i],
-                                                                       self.current_thresholds[i])
-                # x, y, z = verbose_tracked_blob(img, tracked_blob, show)
-                if self.show:
-                    x0, y0, w, h = [math.floor(self.tracked_blob.feature_vector[i]) for i in range(4)]
-                    img.draw_rectangle(x0, y0, w, h)
-                    img.draw_rectangle(self.roi.get_roi(), color=(255, 255, 0))
-                    st = "FPS: {}".format(str(round(self.clock.fps(), 2)))
-                    img.draw_string(0, 0, st, color = (255,0,0))
-                return self.tracked_blob.feature_vector, True
-
-
-class GoalTracker:
-    """ GoalTracker class that initializes with a single TrackedBlob and tracks it
-        with dynamic threshold and ROI, the track function is specific for targets
-        which involve turning LEDs on and off
-        TODO: track multiple blobs
-    """
-    def __init__(self, tracked_blob: TrackedBlob, thresholds, clock, show=True):
-        self.tracked_blob = tracked_blob
-        self.original_thresholds = [threshold for threshold in thresholds]
-        self.current_thresholds = [threshold for threshold in thresholds]
-        self.clock = clock
-        self.show = show
-        self.roi = Tracking_ROI(forgetting_factor=0.2)
-
-
-    def track(self, edge_removal=True):
-        """ Detect blobs with tracking capabilities
-            :input: tracked_blob: a TrackedBlob class object
-                    thresholds: the list of color thresholds we want to track
-                    show: True if we want to visualize the tracked blobs
-                    clock: clock
-        """
-        # initialize the blob with the max blob in view if it is not initialized
-        if not self.tracked_blob.blob_history:
-            reference_blob, statistics = find_reference(self.clock,
-                                                        self.original_thresholds,
-                                                        time_show_us=0,
-                                                        blink=True)
-            blue_led.on()
-            self.tracked_blob.reinit(reference_blob)
-            # update the adaptive threshold
-            new_threshold = comp_new_threshold(statistics, 2.0)
-            for i in range(len(self.current_thresholds)):
-                self.current_thresholds[i] = comp_weighted_avg(self.current_thresholds[i],
-                                                new_threshold, 1-THRESHOLD_UPDATE_RATE,
-                                                THRESHOLD_UPDATE_RATE)
-
-            # x, y, z = verbose_tracked_blob(img, tracked_blob, show)
-            self.roi.update(True, self.tracked_blob.feature_vector[0],
-                            self.tracked_blob.feature_vector[1],
-                            self.tracked_blob.feature_vector[2],
-                            self.tracked_blob.feature_vector[3])
-            return self.tracked_blob.feature_vector, True
-        else:
-            # O.W. update the blob
-            blue_led.on()
-            img, blobs = goal_blob_detection(self.current_thresholds, edge_removal=edge_removal)
-            roi = self.tracked_blob.update(blobs)
-
-            if self.tracked_blob.untracked_frames >= 15:
-                # if the blob fails to track for 15 frames, reset the tracking
-                red_led.off()
-                green_led.on()
-                self.tracked_blob.reset()
-                # self.roi.reset()
-                blue_led.off()
-                print("boom!")
-                self.current_thresholds = [threshold for threshold in self.original_thresholds]
-                return None, False
-            else:
-                if roi:
-                    green_led.off()
-                    red_led.off()
-                    self.roi.update(True, roi[0], roi[1], roi[2], roi[3])
-                    statistics = img.get_statistics(roi=roi)
-                    new_threshold = comp_new_threshold(statistics, 3.0)
-                    for i in range(len(self.current_thresholds)):
-                        self.current_thresholds[i] = comp_weighted_avg(self.current_thresholds[i],
-                                                        new_threshold, 1-THRESHOLD_UPDATE_RATE,
-                                                        THRESHOLD_UPDATE_RATE)
-                else:
-                    green_led.off()
-                    red_led.on()
-                    self.roi.update()
-                    for i in range(len(self.current_thresholds)):
-                        self.current_thresholds[i] = comp_weighted_avg(self.original_thresholds[i],
-                                                                       self.current_thresholds[i])
-                # x, y, z = verbose_tracked_blob(img, tracked_blob, show)
-                if self.show:
-                    x0, y0, w, h = [math.floor(self.tracked_blob.feature_vector[i]) for i in range(4)]
-                    img.draw_rectangle(x0, y0, w, h, color=(255, 0, 0))
-                    img.draw_rectangle(self.roi.get_roi(), color=(128, 128, 0))
-                    st = "FPS: {}".format(str(round(self.clock.fps(), 2)))
-                    img.draw_string(0, 0, st, color = (0,0,0))
-                    img.flush()
-                return self.tracked_blob.feature_vector, True
-
-
 class TrackedBlob:
     """ TrackedBlob class:
         An advanced class that tracks a colored blob based on a feature vector of 5 values:
@@ -380,6 +199,184 @@ class TrackedBlob:
             return None
 
 
+class Tracker:
+    """ Base class for blob and goal tracker
+    """
+    def __init__(self, tracked_blob: TrackedBlob, thresholds, clock, show=True):
+        self.tracked_blob = tracked_blob
+        self.original_thresholds = [threshold for threshold in thresholds]
+        self.current_thresholds = [threshold for threshold in thresholds]
+        self.clock = clock
+        self.show = show
+        self.roi = Tracking_ROI(forgetting_factor=0.1)
+
+    def track(self):
+        pass
+
+
+class BlobTracker(Tracker):
+    """ BlobTracker class that initializes with a single TrackedBlob
+        and tracks it with dynamic threshold
+        TODO: track multiple blobs
+    """
+    def track(self):
+        """ Detect blobs with tracking capabilities
+            :input: tracked_blob: a TrackedBlob class object
+                    thresholds: the list of color thresholds we want to track
+                    show: True if we want to visualize the tracked blobs
+                    clock: clock
+        """
+        # initialize the blob with the max blob in view if it is not initialized
+        if not self.tracked_blob.blob_history:
+            reference_blob, statistics = find_reference(self.clock,
+                                                        self.original_thresholds,
+                                                        time_show_us=0)
+            blue_led.on()
+            self.tracked_blob.reinit(reference_blob)
+            # update the adaptive threshold
+            new_threshold = comp_new_threshold(statistics, 2.0)
+            for i in range(len(self.current_thresholds)):
+                self.current_thresholds[i] = comp_weighted_avg(self.current_thresholds[i],
+                                                new_threshold, 1-THRESHOLD_UPDATE_RATE,
+                                                THRESHOLD_UPDATE_RATE)
+
+            # x, y, z = verbose_tracked_blob(img, tracked_blob, show)
+            self.roi.update(True, self.tracked_blob.feature_vector[0],
+                            self.tracked_blob.feature_vector[1],
+                            self.tracked_blob.feature_vector[2],
+                            self.tracked_blob.feature_vector[3])
+            return self.tracked_blob.feature_vector, True
+        else:
+            # O.W. update the blob
+            img = sensor.snapshot()
+            self.clock.tick()
+            blobs = img.find_blobs(self.current_thresholds, merge=True,
+                                   pixels_threshold=75,
+                                   area_threshold=100,
+                                   margin=20,
+                                   roi=self.roi.get_roi(),
+                                   x_stride=1,
+                                   y_stride=1)
+            blue_led.on()
+            roi = self.tracked_blob.update(blobs)
+
+            if self.tracked_blob.untracked_frames >= 15:
+                # if the blob fails to track for 15 frames, reset the tracking
+                red_led.off()
+                green_led.on()
+                self.tracked_blob.reset()
+                # self.roi.reset()
+                blue_led.off()
+                print("boom!")
+                self.current_thresholds = [threshold for threshold in self.original_thresholds]
+                return None, False
+            else:
+                if roi:
+                    green_led.off()
+                    red_led.off()
+                    self.roi.update(True, roi[0], roi[1], roi[2], roi[3])
+                    statistics = img.get_statistics(roi=roi)
+                    new_threshold = comp_new_threshold(statistics, 3.0)
+                    for i in range(len(self.current_thresholds)):
+                        self.current_thresholds[i] = comp_weighted_avg(self.current_thresholds[i],
+                                                        new_threshold, 1-THRESHOLD_UPDATE_RATE,
+                                                        THRESHOLD_UPDATE_RATE)
+                else:
+                    green_led.off()
+                    red_led.on()
+                    self.roi.update()
+                    for i in range(len(self.current_thresholds)):
+                        self.current_thresholds[i] = comp_weighted_avg(self.original_thresholds[i],
+                                                                       self.current_thresholds[i])
+                # x, y, z = verbose_tracked_blob(img, tracked_blob, show)
+                if self.show:
+                    x0, y0, w, h = [math.floor(self.tracked_blob.feature_vector[i]) for i in range(4)]
+                    img.draw_rectangle(x0, y0, w, h)
+                    img.draw_rectangle(self.roi.get_roi(), color=(255, 255, 0))
+                    st = "FPS: {}".format(str(round(self.clock.fps(), 2)))
+                    img.draw_string(0, 0, st, color = (255,0,0))
+                return self.tracked_blob.feature_vector, True
+
+
+class GoalTracker(Tracker):
+    """ GoalTracker class that initializes with a single TrackedBlob and tracks it
+        with dynamic threshold and ROI, the track function is specific for targets
+        which involve turning LEDs on and off
+        TODO: track multiple blobs
+    """
+    def track(self, edge_removal=True):
+        """ Detect blobs with tracking capabilities
+            :input: tracked_blob: a TrackedBlob class object
+                    thresholds: the list of color thresholds we want to track
+                    show: True if we want to visualize the tracked blobs
+                    clock: clock
+        """
+        # initialize the blob with the max blob in view if it is not initialized
+        if not self.tracked_blob.blob_history:
+            reference_blob, statistics = find_reference(self.clock,
+                                                        self.original_thresholds,
+                                                        time_show_us=0,
+                                                        blink=True)
+            blue_led.on()
+            self.tracked_blob.reinit(reference_blob)
+            # update the adaptive threshold
+            new_threshold = comp_new_threshold(statistics, 2.0)
+            for i in range(len(self.current_thresholds)):
+                self.current_thresholds[i] = comp_weighted_avg(self.current_thresholds[i],
+                                                new_threshold, 1-THRESHOLD_UPDATE_RATE,
+                                                THRESHOLD_UPDATE_RATE)
+
+            # x, y, z = verbose_tracked_blob(img, tracked_blob, show)
+            self.roi.update(True, self.tracked_blob.feature_vector[0],
+                            self.tracked_blob.feature_vector[1],
+                            self.tracked_blob.feature_vector[2],
+                            self.tracked_blob.feature_vector[3])
+            return self.tracked_blob.feature_vector, True
+        else:
+            # O.W. update the blob
+            blue_led.on()
+            img, blobs = goal_blob_detection(self.current_thresholds, edge_removal=edge_removal)
+            roi = self.tracked_blob.update(blobs)
+
+            if self.tracked_blob.untracked_frames >= 15:
+                # if the blob fails to track for 15 frames, reset the tracking
+                red_led.off()
+                green_led.on()
+                self.tracked_blob.reset()
+                # self.roi.reset()
+                blue_led.off()
+                print("boom!")
+                self.current_thresholds = [threshold for threshold in self.original_thresholds]
+                return None, False
+            else:
+                if roi:
+                    green_led.off()
+                    red_led.off()
+                    self.roi.update(True, roi[0], roi[1], roi[2], roi[3])
+                    statistics = img.get_statistics(roi=roi)
+                    new_threshold = comp_new_threshold(statistics, 3.0)
+                    for i in range(len(self.current_thresholds)):
+                        self.current_thresholds[i] = comp_weighted_avg(self.current_thresholds[i],
+                                                        new_threshold, 1-THRESHOLD_UPDATE_RATE,
+                                                        THRESHOLD_UPDATE_RATE)
+                else:
+                    green_led.off()
+                    red_led.on()
+                    self.roi.update()
+                    for i in range(len(self.current_thresholds)):
+                        self.current_thresholds[i] = comp_weighted_avg(self.original_thresholds[i],
+                                                                       self.current_thresholds[i])
+                # x, y, z = verbose_tracked_blob(img, tracked_blob, show)
+                if self.show:
+                    x0, y0, w, h = [math.floor(self.tracked_blob.feature_vector[i]) for i in range(4)]
+                    img.draw_rectangle(x0, y0, w, h, color=(255, 0, 0))
+                    img.draw_rectangle(self.roi.get_roi(), color=(128, 128, 0))
+                    st = "FPS: {}".format(str(round(self.clock.fps(), 2)))
+                    img.draw_string(0, 0, st, color = (0,0,0))
+                    img.flush()
+                return self.tracked_blob.feature_vector, True
+
+
 def hold_up_for_sensor_refresh(last_time_stamp, wait_time) -> None:
     """
     description: wait for the sensor for some time from the
@@ -444,32 +441,26 @@ def goal_blob_detection(goal_thresholds, isColored=False, edge_removal=True):
     return img, blobs
 
 
-def ball_blob_tracking(reference_blob,
-                       thresholds,
-                       clock,
-                       norm_level=1,
-                       feature_dist_threshold=200):
+def blob_tracking(reference_blob,
+                  thresholds,
+                  clock,
+                  blob_type=1,
+                  norm_level=1,
+                  feature_dist_threshold=200):
     """ The blob tracker initialization for balloons
+        blob_type=1 for balloons
+        blob_type=2 for goals
     """
     tracked_blob = TrackedBlob(reference_blob,
                                norm_level=norm_level,
                                feature_dist_threshold=feature_dist_threshold)
-    blob_tracker = BlobTracker(tracked_blob, thresholds, clock)
+    if blob_type == 1:
+        blob_tracker = BlobTracker(tracked_blob, thresholds, clock)
+    elif blob_type == 2:
+        blob_tracker = GoalTracker(tracked_blob, thresholds, clock)
+    else:
+        exit(1)
     return blob_tracker
-
-
-def goal_blob_tracking(reference_blob,
-                       thresholds,
-                       clock,
-                       norm_level=1,
-                       feature_dist_threshold=300):
-    """ The blob tracker initialization for goals
-    """
-    tracked_blob = TrackedBlob(reference_blob,
-                               norm_level=norm_level,
-                               feature_dist_threshold=feature_dist_threshold)
-    goal_tracker = GoalTracker(tracked_blob, thresholds, clock)
-    return goal_tracker
 
 
 def init_sensor_target(isColored=True, framesize=sensor.HQVGA, windowsize=None) -> None:
@@ -481,7 +472,7 @@ def init_sensor_target(isColored=True, framesize=sensor.HQVGA, windowsize=None) 
     sensor.set_framesize(framesize)
     if windowsize is not None:            # Set windowing to reduce the resolution of the image
         sensor.set_windowing(windowsize)
-    sensor.skip_frames(time=1000)         # Let new settings take affect.
+    # sensor.skip_frames(time=1000)         # Let new settings take affect.
     sensor.set_auto_whitebal(False)
     sensor.set_auto_exposure(False)
 #    sensor.__write_reg(0xad, 0b01001100) # R ratio
@@ -492,19 +483,19 @@ def init_sensor_target(isColored=True, framesize=sensor.HQVGA, windowsize=None) 
     sensor.__write_reg(0x80, 0b10111100) # enable gamma, CC, edge enhancer, interpolation, de-noise
     sensor.__write_reg(0x81, 0b01101100) # enable BLK dither mode, low light Y stretch, autogray enable
     sensor.__write_reg(0x82, 0b00000100) # enable anti blur, disable AWB
-    sensor.__write_reg(0x03, 0b00000000) # high bits of exposure control
-    sensor.__write_reg(0x04, 0b01110000) # low bits of exposure control
-    sensor.__write_reg(0xb0, 0b01100000) # global gain
+    sensor.__write_reg(0x03, 0b00000010) # high bits of exposure control
+    sensor.__write_reg(0x04, 0b11110000) # low bits of exposure control
+    sensor.__write_reg(0xb0, 0b11100000) # global gain
 
     # RGB gains
     sensor.__write_reg(0xa3, 0b01110000) # G gain odd
     sensor.__write_reg(0xa4, 0b01110000) # G gain even
     sensor.__write_reg(0xa5, 0b10000000) # R gain odd
     sensor.__write_reg(0xa6, 0b10000000) # R gain even
-    sensor.__write_reg(0xa7, 0b10010000) # B gain odd
-    sensor.__write_reg(0xa8, 0b10010000) # B gain even
-    sensor.__write_reg(0xa9, 0b10001000) # G gain odd 2
-    sensor.__write_reg(0xaa, 0b10001000) # G gain even 2
+    sensor.__write_reg(0xa7, 0b10000000) # B gain odd
+    sensor.__write_reg(0xa8, 0b10000000) # B gain even
+    sensor.__write_reg(0xa9, 0b10000000) # G gain odd 2
+    sensor.__write_reg(0xaa, 0b10000000) # G gain even 2
     sensor.__write_reg(0xfe, 0b00000010) # change to registers at page 2
     # sensor.__write_reg(0xd0, 0b00000000) # change global saturation,
                                            # strangely constrained by auto saturation
@@ -512,7 +503,7 @@ def init_sensor_target(isColored=True, framesize=sensor.HQVGA, windowsize=None) 
     sensor.__write_reg(0xd2, 0b01000000) # change Cr saturation
     sensor.__write_reg(0xd3, 0b01001000) # luma contrast
     # sensor.__write_reg(0xd5, 0b00000000) # luma offset
-    sensor.skip_frames(time=2000) # Let the camera adjust.
+    # sensor.skip_frames(time=2000) # Let the camera adjust.
 
 
 def draw_initial_blob(img, blob, sleep_us=500000) -> None:
@@ -637,8 +628,7 @@ def IBus_message(message_arr_to_send):
     msg[0] = 0x20
     msg[1] = 0x40
     for i in range(len(message_arr_to_send)):
-        msg_byte_tuple = message_arr_to_send[i]
-        msg_byte_tuple = bytearray(message.to_bytes(2, 'little'))
+        msg_byte_tuple = bytearray(message_arr_to_send[i].to_bytes(2, 'little'))
         msg[int(2*i + 2)] = msg_byte_tuple[0]
         msg[int(2*i + 3)] = msg_byte_tuple[1]
 
@@ -647,6 +637,34 @@ def IBus_message(message_arr_to_send):
     msg[-1] = chA
     msg[-2] = chB
     return msg
+
+
+def mode_initialization(input_mode, mode):
+    """ Switching between blinking goal tracker and balloon tracker
+    """
+    if mode == input_mode:
+        print("already in the mode")
+        return None
+    else:
+        if input_mode == 0:
+            # balloon tracking mode
+            init_sensor_target(isColored=True)
+            thresholds = GREEN
+            reference_blob, statistics = find_reference(clock, thresholds, blink=False)
+            tracker = blob_tracking(reference_blob, thresholds, clock,
+                                    blob_type=1, feature_dist_threshold=300)
+        elif input_mode == 1:
+            init_sensor_target(isColored=False)
+            # Find reference
+            thresholds = GRAY
+            reference_blob, statistics = find_reference(clock, thresholds,
+                                                        roundness_threshold=0.55,
+                                                        blink=True)
+            tracker = blob_tracking(reference_blob, thresholds, clock,
+                                    blob_type=2, feature_dist_threshold=200)
+
+        return input_mode, tracker
+
 
 
 if __name__ == "__main__":
@@ -664,30 +682,21 @@ if __name__ == "__main__":
     green_led = pyb.LED(2)
     blue_led = pyb.LED(3)
     clock = time.clock()
-    # Initialize ToF sensor
-    # tof = VL53L1X(I2C(2))
+
+    mode = 0
+
     # Initialize UART
     uart = UART("LP1", 115200, timeout_char=2000) # (TX, RX) = (P1, P0) = (PB14, PB15)
     # Sensor initialization
-    # init_sensor_target(isColored=True)
-    init_sensor_target(isColored=False)
-    # Find reference
-    thresholds = GRAY
-    reference_blob, statistics = find_reference(clock, thresholds, roundness_threshold=0.55, blink=True)
-    goal_tracker = goal_blob_tracking(reference_blob, thresholds, clock, 200)
-    # thresholds = GREEN
-    # reference_blob, statistics = find_reference(clock, thresholds, blink=False)
-    # blob_tracker = ball_blob_tracking(reference_blob, thresholds, clock, 300)
+
+    mode, tracker = mode_initialization(mode, -1)
 
     while True:
-        # blob_tracker.track()
-        goal_tracker.track()
-        # if blob_tracker.tracked_blob.feature_vector:
-        # roi = blob_tracker.roi.get_roi()
-        # feature_vec = blob_tracker.tracked_blob.feature_vector
-        if goal_tracker.tracked_blob.feature_vector:
-            roi = goal_tracker.roi.get_roi()
-            feature_vec = goal_tracker.tracked_blob.feature_vector
+        print(mode)
+        tracker.track()
+        if tracker.tracked_blob.feature_vector:
+            roi = tracker.roi.get_roi()
+            feature_vec = tracker.tracked_blob.feature_vector
             x_value = roi[0] + roi[2]//2
             y_value = roi[1] + roi[3]//2
             w_value = int(feature_vec[2])
@@ -699,5 +708,23 @@ if __name__ == "__main__":
         # send 32 byte message
         uart.write(msg)
         # receive 32 byte message
+        # if random.random() > 0.9:
+        #     res = mode_initialization(0, mode)
+        #     if res:
+        #         mode, tracker = res
+        # elif random.random() < 0.1:
+        #     res = mode_initialization(1, mode)
+        #     if res:
+        #         mode, tracker = res
+
         if uart.any():
-            received = uart.read()
+            uart_input = uart.read()
+            if uart_input == 0x80:
+                res = mode_initialization(0, mode)
+                if res:
+                    mode, tracker = res
+            elif uart_input == 0x81:
+                res = mode_initialization(1, mode)
+                if res:
+                    mode, tracker = res
+
