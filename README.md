@@ -32,17 +32,15 @@ Both modes use the same moving-window-based tracking methods (see classes `Track
 6. Find colored blobs on `diff` with regions marked with `mask` masked out.
 
 ## Parameters
-TODO: the parameter list needs updates.
-
-This is a test example. However, there are several parameters you can tune to change the tracking behavior:
 1. `thresholds`: it determines the color to detect and track
 2. In function `find_reference`, `density_threshold` and `roundness_threshold=0.4`: they determine how strictly dense and round the initial blob needs to be.
 3. In initialization of the `TrackedBlob` object currently in function `find_reference`,
    1. `norm_level` controls the distance type, 1-norm is faster and 2-norm is smoother (try both and feel the difference)
    2. `feature_dist_threshold` controls how strict a feature vector match needs to be
    3. `window_size` controls how long a history of tracked blobs the user wants to keep. Higher value gives a smoother but more draggy track
-4. *NEW* if the nicla is connected to another device through uart, when it receives `0x80`, it will try to switch to balloon tracking mode. When it receives `0x81`,
+4. If the nicla is connected to another device through uart, when it receives `0x80`, it will try to switch to balloon tracking mode. When it receives `0x81`,
 it will try to switch to goal tracking mode.
+5. In the initialization of `Tracking_ROI` objects, `forgetting_factor` controls how rapid the bounding box is updated with respect to a new input or a new misinput.
 
 ## Pending:
 1. `id`: we would like to identify/distinguish different blobs.
