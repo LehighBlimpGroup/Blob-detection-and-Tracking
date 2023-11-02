@@ -41,6 +41,8 @@ This is a test example. However, there are several parameters you can tune to ch
    1. `norm_level` controls the distance type, 1-norm is faster and 2-norm is smoother (try both and feel the difference)
    2. `feature_dist_threshold` controls how strict a feature vector match needs to be
    3. `window_size` controls how long a history of tracked blobs the user wants to keep. Higher value gives a smoother but more draggy track
+4. *NEW* if the nicla is connected to another device through uart, when it receives `0x80`, it will try to switch to balloon tracking mode. When it receives `0x81`,
+it will try to switch to goal tracking mode.
 
 ## Pending:
 1. `id`: we would like to identify/distinguish different blobs.
