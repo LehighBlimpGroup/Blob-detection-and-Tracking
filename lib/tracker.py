@@ -42,7 +42,7 @@ class Tracker:
         self.current_thresholds = [threshold for threshold in thresholds]  # Deep copy the thresholds
         self.clock = clock  # The clock to track the time
         self.show = show  # Whether to show the image
-        self.roi = MemROI(ffp=0.1, ffs=0.1, gfp=0.2, gfs=0.2)  # The ROI of the blob
+        # self.roi = MemROI(ffp=0.2, ffs=0.2, gfp=0.05, gfs=0.1)  # The ROI of the blob
         self.max_untracked_frames = max_untracked_frames  # The maximum number of untracked frames
         self.dynamic_threshold = dynamic_threshold  # Whether to use dynamic threshold
         self.threshold_update_rate = threshold_update_rate  # The rate of threshold update
@@ -217,6 +217,7 @@ class BLOBTracker(Tracker):
             threshold_update_rate,
         )  # Initialize the parent class
         blob, _ = self.find_reference()
+        self.roi = MemROI(ffp=0.01, ffs=0.025, gfp=0.2, gfs=0.2)  # The ROI of the blob
         self.tracked_blob = CurBLOB(blob)
 
 
@@ -277,7 +278,6 @@ class BLOBTracker(Tracker):
         if self.show:
             x0, y0, w, h = [math.floor(self.tracked_blob.feature_vector[i]) for i in range(4)]
             img.draw_rectangle(x0, y0, w, h)
-            print(x0, y0, w, h)
             img.draw_rectangle(self.roi.get_roi(), color=(255, 255, 0))
             st = "FPS: {}".format(str(round(self.clock.fps(), 2)))
             img.draw_string(0, 0, st, color=(255, 0, 0))
@@ -328,7 +328,7 @@ class GoalTracker(Tracker):
         thresholds: list,
         clock: time.clock,
         show: bool = True,
-        max_untracked_frames: int = 5,
+        max_untracked_frames: int = 8,
         dynamic_threshold: bool = False,
         threshold_update_rate: float = 0,
         LEDpin: str = "PG12",
@@ -355,6 +355,7 @@ class GoalTracker(Tracker):
             dynamic_threshold,
             threshold_update_rate,
         )
+        self.roi = MemROI(ffp=0.01, ffs=0.025, gfp=0.2, gfs=0.2)  # The ROI of the blob
         self.IR_LED = Pin(LEDpin, Pin.OUT)
         self.IR_LED.value(0)
         self.sensor_sleep_time = sensor_sleep_time
@@ -470,6 +471,8 @@ class GoalTracker(Tracker):
             area_threshold=40,
             pixels_threshold=20,
             margin=10,
+            x_stride=1,
+            y_stride=1,
             merge=True,
             mask=edge_mask,
         )

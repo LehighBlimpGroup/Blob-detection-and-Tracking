@@ -12,8 +12,8 @@ from pyb import UART
 # Macros
 IBUS_MSG_LEN = 32 # The length of the iBus message
 IBUS_MSG_HEADER = [0x20, 0x40] # The header of the iBus message
-NICLA_TGT = 0x11 # Flag to set Nicla in target mode
-NICLA_GAL = 0x22 # Flag to set Nicla in goal mode
+NICLA_TGT = 0x80 # Flag to set Nicla in target mode
+NICLA_GAL = 0x81 # Flag to set Nicla in goal mode
 
 class IBus:
     def __init__(self, pinset:str="LP1", baudrate:int=115200, timeout:int=2000)->None:
@@ -49,9 +49,9 @@ class IBus:
             msg[2*i+3] = raw_byte_tuple[1]
 
         # Calculate the checksum
-        checksum = self._checksum(msg[2:])
-        msg[30] = checksum[0]
-        msg[31] = checksum[1]
+        checksum = self._checksum(msg[:-2])
+        msg[-1] = checksum[0]
+        msg[-2] = checksum[1]
         return msg
 
     def _checksum(self, msg:bytearray)->tuple:
@@ -75,7 +75,7 @@ class IBus:
         @param       {*} self:
         @return      {*} None
         """
-        self.uart.read(self.uart.any())
+        pass
 
     def send(self, raw_msg:list)->None:
         """
@@ -97,13 +97,14 @@ class IBus:
         @return      {str} The flag to set Nicla in target mode or goal mode
         """
         if self.uart.any():
-            msg = self.uart.read(32)
+            msg = self.uart.read()
             if msg == NICLA_TGT:
                 return "T"
             elif msg == NICLA_GAL:
                 return "G"
             else:
                 return "N" # Receive malformed message
+
 
 if __name__ == "__main__":
     # Initialize the iBus class with default parameters

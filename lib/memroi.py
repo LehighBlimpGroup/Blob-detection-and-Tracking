@@ -9,13 +9,15 @@ Description  : The ROI(region of interest) library for the Bicopter Vision Contr
 
 # Macros
 FRAME_PARAMS = [0, 0, 240, 160] # Upper left corner x, y, width, height
-FF_POSITION = 0.05 # The forgetting factor for the position
-FF_SIZE = 0.1 # The forgetting factor for the size
+FF_POSITION = 0.0 # The forgetting factor for the position
+FF_SIZE = 0.0 # The forgetting factor for the size
 GF_POSITION = 0.3 # The gain factor for the position
 GF_SIZE = 0.3 # The gain factor for the size
 
 class MemROI:
-    def __init__(self, frame_params:list = FRAME_PARAMS, min_windowsize:int=20, ffp:float=FF_POSITION, ffs:float=FF_SIZE, gfp:float=GF_POSITION, gfs:float=GF_SIZE)->None:
+    def __init__(self, frame_params:list = FRAME_PARAMS,
+                 min_windowsize:int=20, ffp:float=FF_POSITION, ffs:float=FF_SIZE,
+                 gfp:float=GF_POSITION, gfs:float=GF_SIZE)->None:
         """
         @description: Constructor of the ROI object that memorizes previous states.
         @param       {*} self:
@@ -73,6 +75,8 @@ class MemROI:
         cx1, cy1 = self._center(rect1) # Center x, y
         cx2, cy2 = self._center(rect2) # Center x, y
 
+        fp = 0.0
+        fs = 0.0
         if flag == 0:
             fp = self.ffp
             fs = self.ffs
@@ -99,7 +103,7 @@ class MemROI:
         @param       {list} new_roi: The new roi to map to [x0, y0, w, h]
         @return      {*} None
         """
-        if new_roi is None: # No new detection is found in the maximum tracking window
+        if not new_roi: # No new detection is found in the maximum tracking window
             self.roi = self._map(self.roi, self.frame_params, 0) # Map the ROI to the frame by the forgetting factors
         else:
             # Scale up the new_roi
