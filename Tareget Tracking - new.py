@@ -2,7 +2,8 @@ from lib.Ibus import IBus
 import time
 import sensor
 from lib.tracker import BLOBTracker, GoalTracker
-from lib.Ibus import IBus
+from pyb import UART
+#from lib.Ibus import IBus
 
 
 def blob_tracking(thresholds, clock, blob_type=1):
@@ -39,9 +40,9 @@ def init_sensor_target(isColored=True, framesize=sensor.HQVGA, windowsize=None) 
     sensor.__write_reg(0x80, 0b10111100) # enable gamma, CC, edge enhancer, interpolation, de-noise
     sensor.__write_reg(0x81, 0b01101100) # enable BLK dither mode, low light Y stretch, autogray enable
     sensor.__write_reg(0x82, 0b00000100) # enable anti blur, disable AWB
-    sensor.__write_reg(0x03, 0b00000000) # high bits of exposure control
-    sensor.__write_reg(0x04, 0b01000000) # low bits of exposure control
-    sensor.__write_reg(0xb0, 0b01100000) # global gain
+    sensor.__write_reg(0x03, 0b00000010) # high bits of exposure control
+    sensor.__write_reg(0x04, 0b11000000) # low bits of exposure control
+    sensor.__write_reg(0xb0, 0b11100000) # global gain
 
     # RGB gains
     sensor.__write_reg(0xa3, 0b01110000) # G gain odd
@@ -60,6 +61,34 @@ def init_sensor_target(isColored=True, framesize=sensor.HQVGA, windowsize=None) 
     sensor.__write_reg(0xd3, 0b01001000) # luma contrast
     # sensor.__write_reg(0xd5, 0b00000000) # luma offset
     # sensor.skip_frames(time=2000) # Let the camera adjust.
+
+
+def checksum(arr, initial= 0):
+    """ The last pair of byte is the checksum on iBus
+    """
+    sum = initial
+    for a in arr:
+        sum += a
+    checksum = 0xFFFF - sum
+    chA = checksum >> 8
+    chB = checksum & 0xFF
+    return chA, chB
+
+
+def IBus_message(message_arr_to_send):
+    msg = bytearray(32)
+    msg[0] = 0x20
+    msg[1] = 0x40
+    for i in range(len(message_arr_to_send)):
+        msg_byte_tuple = bytearray(message_arr_to_send[i].to_bytes(2, 'little'))
+        msg[int(2*i + 2)] = msg_byte_tuple[0]
+        msg[int(2*i + 3)] = msg_byte_tuple[1]
+
+    # Perform the checksume
+    chA, chB = checksum(msg[:-2], 0)
+    msg[-1] = chA
+    msg[-2] = chB
+    return msg
 
 
 def mode_initialization(input_mode, mode):
@@ -86,20 +115,22 @@ def mode_initialization(input_mode, mode):
 if __name__ == "__main__":
     ### Macros
     GREEN = [(28, 40, -24, -4, -2, 28)]
-    PURPLE = [(8, 19, 7, 18, -24, -5)]
-    GRAY = [(0, 20)]
+    PURPLE = [(8, 27, 6, 21, -29, -10)]
+    GRAY = [(0, 35)]
     THRESHOLD_UPDATE_RATE = 0.0
     WAIT_TIME_US = 50000
     ### End Macros
 
     clock = time.clock()
-    mode = 1
+    mode = 0
 
     # Initialize inter-board communication
-    ibus = IBus()
+    # ibus = IBus()
     # Sensor initialization
 
     mode, tracker = mode_initialization(mode, -1)
+    # Initialize UART
+    uart = UART("LP1", 115200, timeout_char=2000) # (TX, RX) = (P1, P0) = (PB14, PB15)
 
     while True:
         tracker.track()
@@ -115,16 +146,28 @@ if __name__ == "__main__":
             y_value = int(feature_vec[1] + feature_vec[3]/2)
             w_value = int(feature_vec[2])
             h_value = int(feature_vec[3])
-            ibus.send([mode, x_roi, y_roi, w_roi, h_roi, x_value, y_value, w_value, h_value])
+            msg = IBus_message([mode, x_roi, y_roi, w_roi, h_roi, x_value, y_value, w_value, h_value])
+            # ibus.send([mode, x_roi, y_roi, w_roi, h_roi, x_value, y_value, w_value, h_value])
         else:
-            ibus.send([-1, 0, 0, 0, 0, 0, 0, 0, 0])
-
-        received_msg = ibus.receive()
-        if received_msg == 0x80:
-            res = mode_initialization(0, mode)
-            if res:
-                mode, tracker = res
-        elif received_msg == 0x81:
-            res = mode_initialization(1, mode)
-            if res:
-                mode, tracker = res
+            msg = IBus_message([0, 0, 0, 0, 0, 0, 0, 0, 0])
+            # ibus.send([3, 0, 0, 0, 0, 0, 0, 0, 0])
+        uart.write(msg)
+        if uart.any():
+            uart_input = uart.read()
+            if uart_input == 0x80:
+                res = mode_initialization(0, mode)
+                if res:
+                    mode, tracker = res
+            elif uart_input == 0x81:
+                res = mode_initialization(1, mode)
+                if res:
+                    mode, tracker = res
+#        received_msg = ibus.receive()
+#        if received_msg == "T":
+#            res = mode_initialization(0, mode)
+#            if res:
+#                mode, tracker = res
+#        elif received_msg == "G":
+#            res = mode_initialization(1, mode)
+#            if res:
+#                mode, tracker = res
