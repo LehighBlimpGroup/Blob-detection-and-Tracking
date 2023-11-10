@@ -42,7 +42,6 @@ class Tracker:
         self.current_thresholds = [threshold for threshold in thresholds]  # Deep copy the thresholds
         self.clock = clock  # The clock to track the time
         self.show = show  # Whether to show the image
-        # self.roi = MemROI(ffp=0.2, ffs=0.2, gfp=0.05, gfs=0.1)  # The ROI of the blob
         self.max_untracked_frames = max_untracked_frames  # The maximum number of untracked frames
         self.dynamic_threshold = dynamic_threshold  # Whether to use dynamic threshold
         self.threshold_update_rate = threshold_update_rate  # The rate of threshold update
@@ -478,7 +477,7 @@ class GoalTracker(Tracker):
         )
         sensor.dealloc_extra_fb()
         omv.disable_fb(False)
-        img.flush()
+#        img.flush()
         self.sensor_sleep(time_last_snapshot)
         return img, list_of_blob
 

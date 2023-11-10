@@ -20,7 +20,7 @@ class CurBLOB:
         self,
         initial_blob,
         norm_level: int = NORM_LEVEL,
-        feature_dist_threshold: int = 200,
+        feature_dist_threshold: int = 300,
         window_size=5,
         blob_id=0,
     ) -> None:
