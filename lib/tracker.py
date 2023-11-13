@@ -57,7 +57,7 @@ class Tracker:
         # TODO: Implement this function in the child class
         pass
 
-    def draw_initial_blob(self, img: image, blob: image.blob, sleep_us: int = 200000) -> None:
+    def draw_initial_blob(self, img: image, blob: image.blob, sleep_us: int = 50000) -> None:
         """
         @description:
         @param       {image} img: The image to be drawn on
@@ -225,6 +225,14 @@ class BLOBTracker(Tracker):
         @description: Track the blob with dynamic threshold and ROI
         @return      {tuple} The feature vector of the tracked blob and whether the blob is tracked
         """
+        # the 8-bit flag variable
+        # From MSB to LSB
+        # [7]: 1 if tracked, 0 if not
+        # [6:3] : Reserved
+        # [2] : 1 if solid, 0 if hole
+        # [1] : 1 if green, 0 if orange
+        # [0] : 1 if goal, 0 if balloon
+        flag = 0x80
         # Initialize the blob with the max blob in view if it is not initialized
         if not self.tracked_blob.blob_history:
             # There is no blob history, initialize the blob
@@ -234,24 +242,26 @@ class BLOBTracker(Tracker):
             self.update_thresholds(statistics)  # Update the dynamic threshold
             self.roi.update(self.tracked_blob.feature_vector[0:4])  # Update the ROI
             self.update_leds(tracking=True, detecting=True, lost=False)
-            return (
-                self.tracked_blob.feature_vector,
-                True,
-            )  # Return the feature vector and True
+            return self.tracked_blob.feature_vector, flag # Return the feature vector and True
+
         # Track the blob
         self.clock.tick()
         img = sensor.snapshot()
         list_of_blobs = img.find_blobs(
             self.current_thresholds,
             merge=True,
-            pixels_threshold=75,
-            area_threshold=100,
-            margin=20,
+            pixels_threshold=35,
+            area_threshold=50,
+            margin=10,
             roi=self.roi.get_roi(),
             x_stride=1,
             y_stride=1,
         )
-        blob_rect = self.tracked_blob.update(list_of_blobs)
+        list_of_square_blobs = []
+        for blob in list_of_blobs:
+            if blob.h()/blob.w() < 1.5:
+                list_of_square_blobs.append(blob)
+        blob_rect = self.tracked_blob.update(list_of_square_blobs)
 
         if self.tracked_blob.untracked_frames >= self.max_untracked_frames:
             # If the blob fails to track for 15 frames, reset the tracking and find a new reference blob
@@ -260,7 +270,8 @@ class BLOBTracker(Tracker):
             self.update_leds(tracking=False, detecting=False, lost=True)
             print("Blob lost")
             self.update_thresholds(reset=True)  # Reset the dynamic threshold
-            return None, False
+            flag &= 0x7f
+            return None, flag
         if blob_rect:
             # If we discover the reference blob again
             self.roi.update(blob_rect)  # Update the ROI
@@ -280,7 +291,7 @@ class BLOBTracker(Tracker):
             img.draw_rectangle(self.roi.get_roi(), color=(255, 255, 0))
             st = "FPS: {}".format(str(round(self.clock.fps(), 2)))
             img.draw_string(0, 0, st, color=(255, 0, 0))
-        return self.tracked_blob.feature_vector, True
+        return self.tracked_blob.feature_vector, flag
 
     def find_reference(
         self,
@@ -311,7 +322,7 @@ class BLOBTracker(Tracker):
             )
             for blob in list_of_blob:
                 # Find a set of good initial blobs by filtering out the not-so-dense and not-so-round blobs
-                if blob.density() > density_threshold and blob.roundness() > roundness_threshold:
+                if blob.density() > density_threshold and blob.roundness() > roundness_threshold and blob.h()/blob.w() < 1.5:
                     nice_blobs.append(blob)
             if nice_blobs:  # If we find a good blob, break the loop
                 break
@@ -354,7 +365,7 @@ class GoalTracker(Tracker):
             dynamic_threshold,
             threshold_update_rate,
         )
-        self.roi = MemROI(ffp=0.01, ffs=0.025, gfp=0.2, gfs=0.2)  # The ROI of the blob
+        self.roi = MemROI(ffp=0.01, ffs=0.025, gfp=0.5, gfs=0.5)  # The ROI of the blob
         self.IR_LED = Pin(LEDpin, Pin.OUT)
         self.IR_LED.value(0)
         self.sensor_sleep_time = sensor_sleep_time
@@ -368,16 +379,37 @@ class GoalTracker(Tracker):
         @param       {bool} edge_removal: Whether to remove the edge noises (default: True)
         @return      {tuple} The feature vector of the tracked blob and whether the blob is tracked
         """
+        # the 8-bit flag variable
+        # From MSB to LSB
+        # [7]: 1 if tracked, 0 if not
+        # [6:3] : Reserved
+        # [2] : 1 if solid, 0 if hole
+        # [1] : 1 if green OR BW, 0 if orange
+        # [0] : 1 if goal, 0 if balloon
+        flag = 0x81
+
         self.update_leds(tracking=True, detecting=True, lost=False)  # Set the LEDs to indicate tracking
         # Initialize the blob with the max blob in view if it is not initialized
         if not self.tracked_blob.blob_history:
             self.update_leds(tracking=False, detecting=False, lost=True)  # Set the LEDs to indicate tracking
             reference_blob, statistics = self.find_reference(time_show_us=0)  # Find the blob with the largest area
             self.tracked_blob.reinit(reference_blob)  # Initialize the tracked blob with the reference blob
+            median_lumen = statistics.median()
+
+            if median_lumen <= self.current_thresholds[0][1]:
+                # solid!
+                flag |= 0x04
             self.update_thresholds(statistics)  # Update the dynamic threshold
             self.roi.update(self.tracked_blob.feature_vector[0:4])  # Update the ROI
             self.update_leds(tracking=True, detecting=True, lost=False)
-            return self.tracked_blob.feature_vector, True
+            color_id = self.tracked_blob.blob_history[-1].code()
+            if color_id & 0b1:
+                # green
+                flag |= 0b10
+            elif color_id & 0b10:
+                # orange
+                flag &= 0xfd
+            return self.tracked_blob.feature_vector, flag
         # Track the blob
         img, list_of_blobs = self.detect(isColored=True, edge_removal=edge_removal)
         blob_rect = self.tracked_blob.update(list_of_blobs)
@@ -389,11 +421,31 @@ class GoalTracker(Tracker):
             # self.roi.reset() (NOTE: ROI is not reset since we are assuming that the blob tends to appear in the same region when it is lost)
             print("Goal lost")
             self.update_thresholds(reset=True)
-            return None, False
+            flag &= 0x7f
+            return None, flag
         if blob_rect:
+            color_id = self.tracked_blob.blob_history[-1].code()
+            if color_id & 0b1:
+                # green
+                flag |= 0b10
+            elif color_id & 0b10:
+                # orange
+                flag &= 0xfd
             # If we discover the reference blob again
             self.roi.update(blob_rect)
-            statistics = img.get_statistics(roi=blob_rect)
+            # We wnat to have a focus on the center of the blob
+            shurnk_roi = list(blob_rect)
+            shurnk_roi[0] += round(0.25*shurnk_roi[2])
+            shurnk_roi[1] += round(0.25*shurnk_roi[3])
+            shurnk_roi[2] //= 2
+            shurnk_roi[3] //= 2
+            statistics = img.get_statistics(roi=shurnk_roi)
+            median_lumen = statistics.median()
+
+            if median_lumen <= self.current_thresholds[0][1]:
+                # solid!
+                flag |= 0x04
+
             self.update_thresholds(statistics)
             self.update_leds(tracking=True, detecting=True, lost=False)
         else:
@@ -408,7 +460,7 @@ class GoalTracker(Tracker):
             st = "FPS: {}".format(str(round(self.clock.fps(), 2)))
             img.draw_string(0, 0, st, color=(0, 0, 0))
             img.flush()
-        return self.tracked_blob.feature_vector, True
+        return self.tracked_blob.feature_vector, flag
 
     def find_reference(
         self,
@@ -420,14 +472,25 @@ class GoalTracker(Tracker):
         @param       {int} time_show_us: The time to show the blob on the screen
         @return      {tuple} The reference blob and its color statistics
         """
+        omv.disable_fb(False)
         while True:
             self.clock.tick()
             img, nice_blobs = self.detect(isColored=True, edge_removal=False)
             if nice_blobs:
                 break
+            img.flush()
         best_blob = self._find_max(nice_blobs)  # Find the best blob, will never return None if nice_blobs is not empty
         self.draw_initial_blob(img, best_blob, time_show_us)  # Draw the initial blob
-        statistics = img.get_statistics(roi=best_blob.rect())  # Get the color statistics of the blob in actual image
+        omv.disable_fb(True)
+
+        # We wnat to have a focus on the center of the blob
+        shurnk_roi = list(best_blob.rect())
+        shurnk_roi[0] += round(0.25*shurnk_roi[2])
+        shurnk_roi[1] += round(0.25*shurnk_roi[3])
+        shurnk_roi[2] //= 2
+        shurnk_roi[3] //= 2
+
+        statistics = img.get_statistics(roi=shurnk_roi)  # Get the color statistics of the blob in actual image
         return best_blob, statistics
 
     def detect(self, isColored=False, edge_removal=True):
@@ -467,9 +530,9 @@ class GoalTracker(Tracker):
         img.negate()
         list_of_blob = list_of_blob = img.find_blobs(
             self.current_thresholds,
-            area_threshold=40,
+            area_threshold=50,
             pixels_threshold=20,
-            margin=10,
+            margin=20,
             x_stride=1,
             y_stride=1,
             merge=True,
@@ -477,7 +540,6 @@ class GoalTracker(Tracker):
         )
         sensor.dealloc_extra_fb()
         omv.disable_fb(False)
-#        img.flush()
         self.sensor_sleep(time_last_snapshot)
         return img, list_of_blob
 
