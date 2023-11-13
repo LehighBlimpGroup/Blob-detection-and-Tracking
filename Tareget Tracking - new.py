@@ -46,61 +46,107 @@ def init_sensor_target(tracking_type:int=0, isColored:bool=True,
     # change sensor color type and exposure based on the tracking type
     if isColored and tracking_type == 0:
         # For balloon tracking
+        """ Night
         sensor.set_pixformat(sensor.RGB565)
+        sensor.__write_reg(0x90, 0b00000110) # disable Neighbor average and enable chroma correction
         sensor.__write_reg(0x03, 0b00000010) # high bits of exposure control
-        sensor.__write_reg(0x04, 0b11100000) # low bits of exposure control
-        sensor.__write_reg(0xb0, 0b11000000) # global gain
+        sensor.__write_reg(0x04, 0b11110000) # low bits of exposure control
+        sensor.__write_reg(0xb0, 0b11111000) # global gain
         # RGB gains
-        sensor.__write_reg(0xa3, 0b01111100) # G gain odd
-        sensor.__write_reg(0xa4, 0b01111100) # G gain even
-        sensor.__write_reg(0xa5, 0b01111100) # R gain odd
-        sensor.__write_reg(0xa6, 0b01111100) # R gain even
+        sensor.__write_reg(0xa3, 0b10000110) # G gain odd
+        sensor.__write_reg(0xa4, 0b10000110) # G gain even
+        sensor.__write_reg(0xa5, 0b10010000) # R gain odd
+        sensor.__write_reg(0xa6, 0b10010000) # R gain even
         sensor.__write_reg(0xa7, 0b11100000) # B gain odd
         sensor.__write_reg(0xa8, 0b11100000) # B gain even
-        sensor.__write_reg(0xa9, 0b10000000) # G gain odd 2
-        sensor.__write_reg(0xaa, 0b10000000) # G gain even 2
+        sensor.__write_reg(0xa9, 0b10000110) # G gain odd 2
+        sensor.__write_reg(0xaa, 0b10000110) # G gain even 2
         sensor.__write_reg(0xfe, 0b00000010) # change to registers at page 2
         # sensor.__write_reg(0xd0, 0b00000000) # change global saturation,
                                                # strangely constrained by auto saturation
         sensor.__write_reg(0xd1, 0b01000000) # change Cb saturation
         sensor.__write_reg(0xd2, 0b01000000) # change Cr saturation
-        sensor.__write_reg(0xd3, 0b01001000) # luma contrast
+        sensor.__write_reg(0xd3, 0b00110000) # luma contrast
         # sensor.__write_reg(0xd5, 0b00000000) # luma offset
+        """
+
+        """ Day
+        sensor.set_pixformat(sensor.RGB565)
+        sensor.__write_reg(0x03, 0b00000000) # high bits of exposure control
+        sensor.__write_reg(0x04, 0b10000000) # low bits of exposure control
+        sensor.__write_reg(0xb0, 0b11000000) # global gain
+        # RGB gains
+        sensor.__write_reg(0xa3, 0b01110000) # G gain odd
+        sensor.__write_reg(0xa4, 0b01110000) # G gain even
+        sensor.__write_reg(0xa5, 0b01101000) # R gain odd
+        sensor.__write_reg(0xa6, 0b01101000) # R gain even
+        sensor.__write_reg(0xa7, 0b10010000) # B gain odd
+        sensor.__write_reg(0xa8, 0b10010000) # B gain even
+        sensor.__write_reg(0xa9, 0b01110000) # G gain odd 2
+        sensor.__write_reg(0xaa, 0b01110000) # G gain even 2
+        sensor.__write_reg(0xfe, 0b00000010) # change to registers at page 2
+        # sensor.__write_reg(0xd0, 0b00000000) # change global saturation,
+                                               # strangely constrained by auto saturation
+        sensor.__write_reg(0xd1, 0b10100000) # change Cb saturation
+        sensor.__write_reg(0xd2, 0b11100000) # change Cr saturation
+        sensor.__write_reg(0xd3, 0b00010000) # luma contrast
+        # sensor.__write_reg(0xd5, 0b00000000) # luma offset
+        """
+
+        """ Auto color """
+        sensor.reset()
+        sensor.set_pixformat(sensor.RGB565)
+        sensor.set_framesize(framesize)
+        if windowsize is not None:
+            sensor.set_windowing(windowsize)
+        sensor.__write_reg(0xfe, 0b00000000) # change to registers at page 0
+        sensor.__write_reg(0x80, 0b01111111) # enable gamma, CC, edge enhancer, interpolation, de-noise
+        sensor.__write_reg(0x81, 0b01101100) # enable BLK dither mode, low light Y stretch, autogray enable
+        sensor.__write_reg(0x82, 0b00000110) # enable anti blur, enable AWB
+        sensor.__write_reg(0xfe, 0b00000010) # change to registers at page 2
+        # sensor.__write_reg(0xd0, 0b00000000) # change global saturation,
+                                               # strangely constrained by auto saturation
+        sensor.__write_reg(0xd1, 0b01100000) # change Cb saturation
+        sensor.__write_reg(0xd2, 0b01100000) # change Cr saturation
+
+
     elif isColored and tracking_type == 1:
         # For target tracking, colored
         sensor.set_pixformat(sensor.RGB565)
-        sensor.__write_reg(0x03, 0b00000001) # high bits of exposure control
-        sensor.__write_reg(0x04, 0b11000000) # low bits of exposure control
-        sensor.__write_reg(0xb0, 0b11100000) # global gain
+        sensor.__write_reg(0x80, 0b01011100) # disable CC
+        sensor.__write_reg(0x90, 0b00000001) # disable Neighbor average and chroma correction
+        sensor.__write_reg(0x03, 0b00000000) # high bits of exposure control
+        sensor.__write_reg(0x04, 0b01000000) # low bits of exposure control
+        sensor.__write_reg(0xb0, 0b10000000) # global gain
         # RGB gains
-        sensor.__write_reg(0xa3, 0b01010000) # G gain odd
-        sensor.__write_reg(0xa4, 0b01010000) # G gain even
-        sensor.__write_reg(0xa5, 0b01101000) # R gain odd
-        sensor.__write_reg(0xa6, 0b01101000) # R gain even
-        sensor.__write_reg(0xa7, 0b01110000) # B gain odd
-        sensor.__write_reg(0xa8, 0b01110000) # B gain even
-        sensor.__write_reg(0xa9, 0b01101000) # G gain odd 2
-        sensor.__write_reg(0xaa, 0b01101000) # G gain even 2
+        sensor.__write_reg(0xa3, 0b11000000) # G gain odd
+        sensor.__write_reg(0xa4, 0b11000000) # G gain even
+        sensor.__write_reg(0xa5, 0b11000000) # R gain odd
+        sensor.__write_reg(0xa6, 0b11000000) # R gain even
+        sensor.__write_reg(0xa7, 0b01100000) # B gain odd
+        sensor.__write_reg(0xa8, 0b01100000) # B gain even
+        sensor.__write_reg(0xa9, 0b11000000) # G gain odd 2
+        sensor.__write_reg(0xaa, 0b11000000) # G gain even 2
         sensor.__write_reg(0xfe, 0b00000010) # change to registers at page 2
         # sensor.__write_reg(0xd0, 0b00000000) # change global saturation,
                                                # strangely constrained by auto saturation
-        sensor.__write_reg(0xd1, 0b01000000) # change Cb saturation
-        sensor.__write_reg(0xd2, 0b01000000) # change Cr saturation
+        sensor.__write_reg(0xd1, 0b10000000) # change Cb saturation
+        sensor.__write_reg(0xd2, 0b10000000) # change Cr saturation
         sensor.__write_reg(0xd3, 0b01000000) # luma contrast
         # sensor.__write_reg(0xd5, 0b00000000) # luma offset
     elif tracking_type == 1:
         # For target tracking, BnW
         sensor.set_pixformat(sensor.GRAYSCALE)
         sensor.__write_reg(0x03, 0b00000000) # high bits of exposure control
-        sensor.__write_reg(0x04, 0b10000000) # low bits of exposure control
-        sensor.__write_reg(0xb0, 0b01000000) # global gain
+        sensor.__write_reg(0x04, 0b01000000) # low bits of exposure control
+        sensor.__write_reg(0xb0, 0b10000000) # global gain
         # RGB gains
         sensor.__write_reg(0xa3, 0b10000000) # G gain odd
         sensor.__write_reg(0xa4, 0b10000000) # G gain even
-        sensor.__write_reg(0xa5, 0b01000000) # R gain odd
-        sensor.__write_reg(0xa6, 0b01000000) # R gain even
-        sensor.__write_reg(0xa7, 0b01000000) # B gain odd
-        sensor.__write_reg(0xa8, 0b01000000) # B gain even
+        sensor.__write_reg(0xa5, 0b01101000) # R gain odd
+        sensor.__write_reg(0xa6, 0b01101000) # R gain even
+        sensor.__write_reg(0xa7, 0b01110100) # B gain odd
+        sensor.__write_reg(0xa8, 0b01110100) # B gain even
         sensor.__write_reg(0xa9, 0b10000000) # G gain odd 2
         sensor.__write_reg(0xaa, 0b10000000) # G gain even 2
         sensor.__write_reg(0xfe, 0b00000010) # change to registers at page 2
@@ -108,7 +154,7 @@ def init_sensor_target(tracking_type:int=0, isColored:bool=True,
                                                # strangely constrained by auto saturation
         sensor.__write_reg(0xd1, 0b01000000) # change Cb saturation
         sensor.__write_reg(0xd2, 0b01000000) # change Cr saturation
-        sensor.__write_reg(0xd3, 0b11100000) # luma contrast
+        sensor.__write_reg(0xd3, 0b01000000) # luma contrast
         # sensor.__write_reg(0xd5, 0b00000000) # luma offset
     else:
         raise ValueError("Not a valid sensor-detection mode!")
@@ -151,30 +197,42 @@ def mode_initialization(input_mode, mode, isColored):
         if input_mode == 0:
             # balloon tracking mode
             init_sensor_target(tracking_type=0, isColored=isColored)
-            thresholds = GREEN + PURPLE
+            thresholds = PURPLE
             tracker = blob_tracking(thresholds, clock, blob_type=1)
+            print("balloon mode!")
         elif input_mode == 1 and not isColored:
             init_sensor_target(tracking_type=1, isColored=isColored)
             # Find reference
             thresholds = GRAY
             tracker = blob_tracking(thresholds, clock, blob_type=2)
+            print("BnW goal mode!")
         elif input_mode == 1 and isColored:
             init_sensor_target(tracking_type=1, isColored=isColored)
             # Find reference
             thresholds = TARGET_COLOR
             tracker = blob_tracking(thresholds, clock, blob_type=2)
+            print("colored goal mode!")
 
         return input_mode, tracker
 
 
 if __name__ == "__main__":
     ### Macros
-    GREEN = [(19, 43, -27, -11, -11, 13)]
-    PURPLE = [(14, 42, 4, 21, -40, -20)]
-    GRAY = [(0, 35)]
-    TARGET_COLOR = [(36, 57, 0, 59, 2, 36), (35, 61, -23, 12, 8, 56)]
+    """ Day
+    GREEN = [(42, 50, -20, -5, -31, -8)]
+    PURPLE = [(41, 52, 25, 54, -78, -52)]
+    """
+    """ Auto color """
+    PURPLE = [(17, 48, 9, 33, -21, 0)]
+
+    """ Night
+    GREEN = [(34, 40, -26, -6, -5, 19)]
+    PURPLE = [(20, 29, 6, 23, -26, -10)]
+    """
+    GRAY = [(20, 160)]
+    TARGET_COLOR = [(39, 56, -12, 15, 48, 63), (39, 61, -19, 1, 45, 64)] # orange, green
     THRESHOLD_UPDATE_RATE = 0.0
-    WAIT_TIME_US = 50000
+    WAIT_TIME_US = 100000
     ### End Macros
 
     clock = time.clock()
@@ -191,10 +249,10 @@ if __name__ == "__main__":
     uart = UART("LP1", 115200, timeout_char=2000) # (TX, RX) = (P1, P0) = (PB14, PB15)
 
     while True:
-        tracker.track()
+        feature_vector, flag = tracker.track()
         try: dis = tof.read()
         except: dis = 9999
-        if tracker.tracked_blob.feature_vector:
+        if flag & 0b10000000:
             roi = tracker.roi.get_roi()
             feature_vec = tracker.tracked_blob.feature_vector
             x_roi = roi[0] + roi[2]//2
@@ -206,20 +264,22 @@ if __name__ == "__main__":
             y_value = int(feature_vec[1] + feature_vec[3]/2)
             w_value = int(feature_vec[2])
             h_value = int(feature_vec[3])
-            msg = IBus_message([mode, x_roi, y_roi, w_roi, h_roi,
+            msg = IBus_message([flag, x_roi, y_roi, w_roi, h_roi,
                                 x_value, y_value, w_value, h_value, dis])
         else:
-            msg = IBus_message([3, 0, 0, 0, 0,
+            msg = IBus_message([flag, 0, 0, 0, 0,
                                 0, 0, 0, 0, dis])
+        print(hex(flag))
 
         uart.write(msg)
         if uart.any():
             uart_input = uart.read()
-            if uart_input == 0x80:
+            print(uart_input)
+            if uart_input == '\x80':
                 res = mode_initialization(0, mode, ISCOLORED)
                 if res:
                     mode, tracker = res
-            elif uart_input == 0x81:
+            elif uart_input == '\x81':
                 res = mode_initialization(1, mode, ISCOLORED)
                 if res:
                     mode, tracker = res
