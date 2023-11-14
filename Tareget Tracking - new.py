@@ -46,12 +46,12 @@ def init_sensor_target(tracking_type:int=0, isColored:bool=True,
     # change sensor color type and exposure based on the tracking type
     if isColored and tracking_type == 0:
         # For balloon tracking
-        """ Night
+        """ Night """
         sensor.set_pixformat(sensor.RGB565)
         sensor.__write_reg(0x90, 0b00000110) # disable Neighbor average and enable chroma correction
         sensor.__write_reg(0x03, 0b00000010) # high bits of exposure control
-        sensor.__write_reg(0x04, 0b11110000) # low bits of exposure control
-        sensor.__write_reg(0xb0, 0b11111000) # global gain
+        sensor.__write_reg(0x04, 0b10000000) # low bits of exposure control
+        sensor.__write_reg(0xb0, 0b11100000) # global gain
         # RGB gains
         sensor.__write_reg(0xa3, 0b10000110) # G gain odd
         sensor.__write_reg(0xa4, 0b10000110) # G gain even
@@ -68,7 +68,7 @@ def init_sensor_target(tracking_type:int=0, isColored:bool=True,
         sensor.__write_reg(0xd2, 0b01000000) # change Cr saturation
         sensor.__write_reg(0xd3, 0b00110000) # luma contrast
         # sensor.__write_reg(0xd5, 0b00000000) # luma offset
-        """
+
 
         """ Day
         sensor.set_pixformat(sensor.RGB565)
@@ -93,8 +93,10 @@ def init_sensor_target(tracking_type:int=0, isColored:bool=True,
         # sensor.__write_reg(0xd5, 0b00000000) # luma offset
         """
 
-        """ Auto color """
+        """ Auto color
         sensor.reset()
+        sensor.set_auto_whitebal(True)
+        sensor.set_auto_exposure(True)
         sensor.set_pixformat(sensor.RGB565)
         sensor.set_framesize(framesize)
         if windowsize is not None:
@@ -108,32 +110,15 @@ def init_sensor_target(tracking_type:int=0, isColored:bool=True,
                                                # strangely constrained by auto saturation
         sensor.__write_reg(0xd1, 0b01100000) # change Cb saturation
         sensor.__write_reg(0xd2, 0b01100000) # change Cr saturation
+        """
 
 
     elif isColored and tracking_type == 1:
         # For target tracking, colored
+        sensor.reset()
         sensor.set_pixformat(sensor.RGB565)
-        sensor.__write_reg(0x80, 0b01011100) # disable CC
-        sensor.__write_reg(0x90, 0b00000001) # disable Neighbor average and chroma correction
-        sensor.__write_reg(0x03, 0b00000000) # high bits of exposure control
-        sensor.__write_reg(0x04, 0b01000000) # low bits of exposure control
-        sensor.__write_reg(0xb0, 0b10000000) # global gain
-        # RGB gains
-        sensor.__write_reg(0xa3, 0b11000000) # G gain odd
-        sensor.__write_reg(0xa4, 0b11000000) # G gain even
-        sensor.__write_reg(0xa5, 0b11000000) # R gain odd
-        sensor.__write_reg(0xa6, 0b11000000) # R gain even
-        sensor.__write_reg(0xa7, 0b01100000) # B gain odd
-        sensor.__write_reg(0xa8, 0b01100000) # B gain even
-        sensor.__write_reg(0xa9, 0b11000000) # G gain odd 2
-        sensor.__write_reg(0xaa, 0b11000000) # G gain even 2
-        sensor.__write_reg(0xfe, 0b00000010) # change to registers at page 2
-        # sensor.__write_reg(0xd0, 0b00000000) # change global saturation,
-                                               # strangely constrained by auto saturation
-        sensor.__write_reg(0xd1, 0b10000000) # change Cb saturation
-        sensor.__write_reg(0xd2, 0b10000000) # change Cr saturation
-        sensor.__write_reg(0xd3, 0b01000000) # luma contrast
-        # sensor.__write_reg(0xd5, 0b00000000) # luma offset
+        sensor.set_framesize(framesize)
+        sensor.set_framerate(60)
     elif tracking_type == 1:
         # For target tracking, BnW
         sensor.set_pixformat(sensor.GRAYSCALE)
@@ -197,7 +182,7 @@ def mode_initialization(input_mode, mode, isColored):
         if input_mode == 0:
             # balloon tracking mode
             init_sensor_target(tracking_type=0, isColored=isColored)
-            thresholds = PURPLE
+            thresholds = PURPLE + GREEN
             tracker = blob_tracking(thresholds, clock, blob_type=1)
             print("balloon mode!")
         elif input_mode == 1 and not isColored:
@@ -220,24 +205,27 @@ if __name__ == "__main__":
     ### Macros
     """ Day
     GREEN = [(42, 50, -20, -5, -31, -8)]
-    PURPLE = [(41, 52, 25, 54, -78, -52)]
-    """
-    """ Auto color """
-    PURPLE = [(17, 48, 9, 33, -21, 0)]
+    PURPLE = [(41, 52, 25, 54, -78, -52)] """
 
-    """ Night
-    GREEN = [(34, 40, -26, -6, -5, 19)]
-    PURPLE = [(20, 29, 6, 23, -26, -10)]
+    """ Auto color Day
+    PURPLE = [(17, 48, 9, 33, -21, 0)]
     """
+    """ Auto color Night
+    PURPLE = [(22, 32, 7, 17, -24, -10)] """
+
+    """ Night """
+    GREEN = [(34, 46, -32, -3, -20, 14)]
+    PURPLE = [(24, 35, 4, 22, -31, -10)]
+
     GRAY = [(20, 160)]
     TARGET_COLOR = [(39, 56, -12, 15, 48, 63), (39, 61, -19, 1, 45, 64)] # orange, green
     THRESHOLD_UPDATE_RATE = 0.0
-    WAIT_TIME_US = 100000
+    WAIT_TIME_US = 1000000//60
     ### End Macros
 
     clock = time.clock()
     ISCOLORED = True
-    mode = 0
+    mode = 1
 
     # Initialize inter-board communication
     # ibus = IBus()
@@ -269,17 +257,17 @@ if __name__ == "__main__":
         else:
             msg = IBus_message([flag, 0, 0, 0, 0,
                                 0, 0, 0, 0, dis])
-        print(hex(flag))
+        # print(hex(flag))
 
         uart.write(msg)
         if uart.any():
             uart_input = uart.read()
             print(uart_input)
-            if uart_input == '\x80':
+            if uart_input == b'\x80':
                 res = mode_initialization(0, mode, ISCOLORED)
                 if res:
                     mode, tracker = res
-            elif uart_input == '\x81':
+            elif uart_input == b'\x81':
                 res = mode_initialization(1, mode, ISCOLORED)
                 if res:
                     mode, tracker = res
