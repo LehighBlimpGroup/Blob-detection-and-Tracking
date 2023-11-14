@@ -216,7 +216,7 @@ class BLOBTracker(Tracker):
             threshold_update_rate,
         )  # Initialize the parent class
         blob, _ = self.find_reference()
-        self.roi = MemROI(ffp=0.01, ffs=0.025, gfp=0.2, gfs=0.2)  # The ROI of the blob
+        self.roi = MemROI(ffp=0.01, ffs=0.025, gfp=0.5, gfs=0.5)  # The ROI of the blob
         self.tracked_blob = CurBLOB(blob)
 
 
@@ -238,11 +238,14 @@ class BLOBTracker(Tracker):
             # There is no blob history, initialize the blob
             self.update_leds(tracking=False, detecting=False, lost=True)  # Set the LEDs to indicate tracking
             reference_blob, statistics = self.find_reference(time_show_us=0)  # Find the blob with the largest area
-            self.tracked_blob.reinit(reference_blob)  # Initialize the tracked blob with the reference blob
-            self.update_thresholds(statistics)  # Update the dynamic threshold
-            self.roi.update(self.tracked_blob.feature_vector[0:4])  # Update the ROI
-            self.update_leds(tracking=True, detecting=True, lost=False)
-            return self.tracked_blob.feature_vector, flag # Return the feature vector and True
+            if reference_blob:
+                self.tracked_blob.reinit(reference_blob)  # Initialize the tracked blob with the reference blob
+                self.update_thresholds(statistics)  # Update the dynamic threshold
+                self.roi.update(self.tracked_blob.feature_vector[0:4])  # Update the ROI
+                self.update_leds(tracking=True, detecting=True, lost=False)
+                return self.tracked_blob.feature_vector, flag # Return the feature vector and True
+            else:
+                return None, 0x0
 
         # Track the blob
         self.clock.tick()
@@ -307,29 +310,30 @@ class BLOBTracker(Tracker):
         @param       {int} time_show_us: The time to show the blob on the screen
         @return      {tuple} The reference blob and its color statistics
         """
-        while True:
-            nice_blobs = []  # A list of good blobs
-            self.clock.tick()
-            img = sensor.snapshot()
-            list_of_blob = img.find_blobs(
-                self.original_thresholds,
-                merge=True,
-                pixels_threshold=30,
-                area_threshold=50,
-                margin=20,
-                x_stride=1,
-                y_stride=1,
-            )
-            for blob in list_of_blob:
-                # Find a set of good initial blobs by filtering out the not-so-dense and not-so-round blobs
-                if blob.density() > density_threshold and blob.roundness() > roundness_threshold and blob.h()/blob.w() < 1.5:
-                    nice_blobs.append(blob)
-            if nice_blobs:  # If we find a good blob, break the loop
-                break
-        best_blob = self._find_max(nice_blobs)  # Find the best blob
-        self.draw_initial_blob(img, best_blob, time_show_us)  # Draw the initial blob
-        statistics = img.get_statistics(roi=best_blob.rect())  # Get the color statistics of the blob in actual image
-        return best_blob, statistics
+
+        nice_blobs = []  # A list of good blobs
+        self.clock.tick()
+        img = sensor.snapshot()
+        list_of_blob = img.find_blobs(
+            self.original_thresholds,
+            merge=True,
+            pixels_threshold=30,
+            area_threshold=50,
+            margin=20,
+            x_stride=1,
+            y_stride=1,
+        )
+        for blob in list_of_blob:
+            # Find a set of good initial blobs by filtering out the not-so-dense and not-so-round blobs
+            if blob.density() > density_threshold and blob.roundness() > roundness_threshold and blob.h()/blob.w() < 1.5:
+                nice_blobs.append(blob)
+        if nice_blobs:  # If we find a good blob, break the loop
+            best_blob = self._find_max(nice_blobs)  # Find the best blob
+            self.draw_initial_blob(img, best_blob, time_show_us)  # Draw the initial blob
+            statistics = img.get_statistics(roi=best_blob.rect())  # Get the color statistics of the blob in actual image
+            return best_blob, statistics
+        else:
+            return None, None
 
 
 class GoalTracker(Tracker):
@@ -365,6 +369,10 @@ class GoalTracker(Tracker):
             dynamic_threshold,
             threshold_update_rate,
         )
+        self.time_last_snapshot = time.time_ns()  # wait for the sensor to capture a new image
+        self.extra_fb = sensor.alloc_extra_fb(sensor.width(), sensor.height(), sensor.RGB565)
+        self.extra_fb2 = sensor.alloc_extra_fb(sensor.width(), sensor.height(), sensor.RGB565)
+        self.extra_fb3 = sensor.alloc_extra_fb(sensor.width(), sensor.height(), sensor.RGB565)
         self.roi = MemROI(ffp=0.01, ffs=0.025, gfp=0.5, gfs=0.5)  # The ROI of the blob
         self.IR_LED = Pin(LEDpin, Pin.OUT)
         self.IR_LED.value(0)
@@ -393,23 +401,27 @@ class GoalTracker(Tracker):
         if not self.tracked_blob.blob_history:
             self.update_leds(tracking=False, detecting=False, lost=True)  # Set the LEDs to indicate tracking
             reference_blob, statistics = self.find_reference(time_show_us=0)  # Find the blob with the largest area
-            self.tracked_blob.reinit(reference_blob)  # Initialize the tracked blob with the reference blob
-            median_lumen = statistics.median()
+            if reference_blob:
+                self.tracked_blob.reinit(reference_blob)  # Initialize the tracked blob with the reference blob
+                median_lumen = statistics.median()
+                if median_lumen <= self.current_thresholds[0][1]:
+                    # solid!
+                    flag |= 0x04
+                self.update_thresholds(statistics)  # Update the dynamic threshold
+                self.roi.update(self.tracked_blob.feature_vector[0:4])  # Update the ROI
+                self.update_leds(tracking=True, detecting=True, lost=False)
+                color_id = self.tracked_blob.blob_history[-1].code()
+                if color_id & 0b1:
+                    # green
+                    flag |= 0b10
+                elif color_id & 0b10:
+                    # orange
+                    flag &= 0xfd
+                return self.tracked_blob.feature_vector, flag
+            else:
+                return None, 0x01
 
-            if median_lumen <= self.current_thresholds[0][1]:
-                # solid!
-                flag |= 0x04
-            self.update_thresholds(statistics)  # Update the dynamic threshold
-            self.roi.update(self.tracked_blob.feature_vector[0:4])  # Update the ROI
-            self.update_leds(tracking=True, detecting=True, lost=False)
-            color_id = self.tracked_blob.blob_history[-1].code()
-            if color_id & 0b1:
-                # green
-                flag |= 0b10
-            elif color_id & 0b10:
-                # orange
-                flag &= 0xfd
-            return self.tracked_blob.feature_vector, flag
+
         # Track the blob
         img, list_of_blobs = self.detect(isColored=True, edge_removal=edge_removal)
         blob_rect = self.tracked_blob.update(list_of_blobs)
@@ -473,12 +485,12 @@ class GoalTracker(Tracker):
         @return      {tuple} The reference blob and its color statistics
         """
         omv.disable_fb(False)
-        while True:
-            self.clock.tick()
-            img, nice_blobs = self.detect(isColored=True, edge_removal=False)
-            if nice_blobs:
-                break
-            img.flush()
+        self.clock.tick()
+        img, nice_blobs = self.detect(isColored=True, edge_removal=False)
+        img.flush()
+        if not nice_blobs:
+            return None, None
+
         best_blob = self._find_max(nice_blobs)  # Find the best blob, will never return None if nice_blobs is not empty
         self.draw_initial_blob(img, best_blob, time_show_us)  # Draw the initial blob
         omv.disable_fb(True)
@@ -496,52 +508,72 @@ class GoalTracker(Tracker):
     def detect(self, isColored=False, edge_removal=True):
         omv.disable_fb(True)  # No show on screen
         # Get an extra frame buffer and take a snapshot
-        if isColored:
-            extra_fb = sensor.alloc_extra_fb(sensor.width(), sensor.height(), sensor.RGB565)
-        else:
-            extra_fb = sensor.alloc_extra_fb(sensor.width(), sensor.height(), sensor.GRAYSCALE)
-        extra_fb.replace(sensor.snapshot())
 
-        # Turn on the Infrared LED
-        self.IR_LED.value(1)
-        time_last_snapshot = time.time_ns()  # wait for the sensor to capture a new image
-        # Time block 1:
-        # Do something other than wait, preferrably detection filtering and tracking
-        self.sensor_sleep(time_last_snapshot)
+        ##################################################################
+        LED_STATE = True
+        sensor.snapshot()
+
+        self.sensor_sleep(self.time_last_snapshot)
+        self.extra_fb.replace(sensor.snapshot())
+        self.time_last_snapshot = time.time_ns()  # wait for the sensor to capture a new image
+        ###################################################################
+
+        self.IR_LED.value(LED_STATE)
+        self.sensor_sleep(self.time_last_snapshot)
+
+
+
+        self.extra_fb2.replace(sensor.snapshot())
+        self.time_last_snapshot = time.time_ns()  # wait for the sensor to capture a new image
+        ######################################################################
+        self.IR_LED.value(not LED_STATE)
+        self.sensor_sleep(self.time_last_snapshot)
+
+
         img = sensor.snapshot()
+        self.time_last_snapshot = time.time_ns()  # wait for the sensor to capture a new image
 
-        # Turn off the Infrared LED
-        self.IR_LED.value(0)
-        time_last_snapshot = time.time_ns()
+        #IR_LED.value(not LED_STATE)
 
-        # time block 2:
-        # Do something other than wait, preferrably raw detection
-        img.sub(extra_fb, reverse=False)
+
+        img.sub(self.extra_fb2, reverse=LED_STATE)
+        self.extra_fb3.replace(img)
+        img.replace(self.extra_fb)
+        img.sub(self.extra_fb2, reverse=LED_STATE)
+        img.difference(self.extra_fb3)
+        self.extra_fb2.replace(img)
+        img.replace(self.extra_fb3)
+        img.sub(self.extra_fb2, reverse=LED_STATE)
 
         # Remove the edge noises
-        edge_mask = None
-        if edge_removal:
-            if isColored:
-                extra_fb.to_grayscale().find_edges(image.EDGE_SIMPLE)
-            else:
-                extra_fb.find_edges(image.EDGE_SIMPLE)
-            edge_mask = extra_fb.dilate(3, 3).negate()
+
 
         img.negate()
-        list_of_blob = list_of_blob = img.find_blobs(
+        list_of_blob = img.find_blobs(
             self.current_thresholds,
-            area_threshold=50,
-            pixels_threshold=20,
-            margin=20,
+            area_threshold=3,
+            pixels_threshold=3,
+            margin=5,
             x_stride=1,
             y_stride=1,
             merge=True,
-            mask=edge_mask,
+
         )
-        sensor.dealloc_extra_fb()
+
+        # sensor.dealloc_extra_fb()
         omv.disable_fb(False)
-        self.sensor_sleep(time_last_snapshot)
-        return img, list_of_blob
+        big_blobs=[]
+        for blob in list_of_blob:
+            if blob.area() > 100 and line_length(blob.minor_axis_line())> 15:
+                big_blobs.append(blob)
+            img.draw_edges(blob.min_corners(), color=(255, 0, 0))
+            img.draw_line(blob.major_axis_line(), color=(0, 255, 0))
+            img.draw_line(blob.minor_axis_line(), color=(0, 0, 255))
+            img.draw_rectangle(blob.rect())
+            img.draw_cross(blob.cx(), blob.cy())
+            img.draw_keypoints([(blob.cx(), blob.cy(), int(math.degrees(blob.rotation())))], size=20)
+
+        return img, big_blobs
 
     def sensor_sleep(self, last_time_stamp) -> None:
         """
@@ -553,3 +585,16 @@ class GoalTracker(Tracker):
         if elapsed > 0:
             time.sleep_us(elapsed)
         return None
+
+def line_length(coords):
+    """Calculate the length of a line segment given its coordinates.
+
+    Args:
+    coords (tuple): A tuple of four elements (x1, y1, x2, y2) representing
+                    the coordinates of the two endpoints of the line segment.
+
+    Returns:
+    float: The length of the line segment.
+    """
+    x1, y1, x2, y2 = coords
+    return math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
