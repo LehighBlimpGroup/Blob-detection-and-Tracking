@@ -34,14 +34,20 @@ class CurBLOB:
         @param       {*} blob_id: The id of the blob
         @return      {*} None
         """
-        self.blob_history = [initial_blob]
-        self.feature_vector = [
-            initial_blob.x(),
-            initial_blob.y(),
-            initial_blob.w(),
-            initial_blob.h(),
-            initial_blob.rotation_deg(),
-        ]
+        if initial_blob:
+            self.blob_history = [initial_blob]
+            self.feature_vector = [
+                initial_blob.x(),
+                initial_blob.y(),
+                initial_blob.w(),
+                initial_blob.h(),
+                initial_blob.rotation_deg(),
+            ]
+        else:
+            self.blob_history = None
+            self.feature_vector = None
+
+
         self.norm_level = norm_level
         self.untracked_frames = 0  # number of frames that the blob is not tracked
         self.feature_dist_threshold = (
