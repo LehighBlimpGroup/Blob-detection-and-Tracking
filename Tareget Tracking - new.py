@@ -7,7 +7,7 @@ from machine import I2C
 from vl53l1x import VL53L1X
 #from lib.Ibus import IBus
 
-
+frame_rate = 80
 def blob_tracking(thresholds, clock, blob_type=1, isColored=True):
     """ The blob tracker initialization for balloons
         blob_type=1 for balloons
@@ -116,9 +116,32 @@ def init_sensor_target(tracking_type:int=0, isColored:bool=True,
     elif isColored and tracking_type == 1:
         # For target tracking, colored
         sensor.reset()
-        sensor.set_pixformat(sensor.RGB565)
+#        sensor.set_auto_whitebal(False)
+#        sensor.set_auto_exposure(False)
+        sensor.set_pixformat(sensor.GRAYSCALE)
+        sensor.__write_reg(0x90, 0b00000110) # disable Neighbor average and enable chroma correction
         sensor.set_framesize(framesize)
-        sensor.set_framerate(60)
+        sensor.set_framerate(frame_rate)
+        sensor.skip_frames(10)
+#        sensor.__write_reg(0x03, 0b00000000) # high bits of exposure control
+#        sensor.__write_reg(0x04, 0b01000000) # low bits of exposure control
+#        sensor.__write_reg(0xb0, 0b10000000) # global gain
+#        # RGB gains
+#        sensor.__write_reg(0xa3, 0b10000000) # G gain odd
+#        sensor.__write_reg(0xa4, 0b10000000) # G gain even
+#        sensor.__write_reg(0xa5, 0b01101000) # R gain odd
+#        sensor.__write_reg(0xa6, 0b01101000) # R gain even
+#        sensor.__write_reg(0xa7, 0b01110100) # B gain odd
+#        sensor.__write_reg(0xa8, 0b01110100) # B gain even
+#        sensor.__write_reg(0xa9, 0b10000000) # G gain odd 2
+#        sensor.__write_reg(0xaa, 0b10000000) # G gain even 2
+#        sensor.__write_reg(0xfe, 0b00000010) # change to registers at page 2
+#        # sensor.__write_reg(0xd0, 0b00000000) # change global saturation,
+#                                               # strangely constrained by auto saturation
+#        sensor.__write_reg(0xd1, 0b01000000) # change Cb saturation
+#        sensor.__write_reg(0xd2, 0b01000000) # change Cr saturation
+#        sensor.__write_reg(0xd3, 0b01000000) # luma contrast
+#        # sensor.__write_reg(0xd5, 0b00000000) # luma offset
     elif tracking_type == 1:
         # For target tracking, BnW
         sensor.set_pixformat(sensor.GRAYSCALE)
@@ -218,9 +241,9 @@ if __name__ == "__main__":
     PURPLE = [(24, 35, 4, 22, -31, -10)]
 
     GRAY = [(20, 160)]
-    TARGET_COLOR = [(39, 56, -12, 15, 48, 63), (39, 61, -19, 1, 45, 64)] # orange, green
+    TARGET_COLOR = [(39, 56, -12, 15, 48, 63), (39, 61, -19, 1, 45, 64), (20, 61, -34, 57, -25, 57)] # orange, green
     THRESHOLD_UPDATE_RATE = 0.0
-    WAIT_TIME_US = 1000000//60
+    WAIT_TIME_US = 1000000//frame_rate
     ### End Macros
 
     clock = time.clock()

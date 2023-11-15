@@ -511,24 +511,34 @@ class GoalTracker(Tracker):
 
         ##################################################################
         LED_STATE = True
-        sensor.snapshot()
+#        self.sensor_sleep(self.time_last_snapshot)
+        sensor.skip_frames(1)
+        while(not sensor.get_frame_available()):
+            time.sleep_us(1)
 
-        self.sensor_sleep(self.time_last_snapshot)
+#        self.time_last_snapshot = time.time_ns()   # wait for the sensor to capture a new image
+
+#        self.sensor_sleep(self.time_last_snapshot)
         self.extra_fb.replace(sensor.snapshot())
-        self.time_last_snapshot = time.time_ns()  # wait for the sensor to capture a new image
+        self.time_last_snapshot = time.time_ns() # wait for the sensor to capture a new image
         ###################################################################
 
         self.IR_LED.value(LED_STATE)
-        self.sensor_sleep(self.time_last_snapshot)
+#        self.sensor_sleep(self.time_last_snapshot)
+
+        while(not sensor.get_frame_available()):
+            time.sleep_us(1)
+#        time.sleep_us(int(self.sensor_sleep_time/2))
 
 
-
+        self.IR_LED.value(not LED_STATE)
         self.extra_fb2.replace(sensor.snapshot())
         self.time_last_snapshot = time.time_ns()  # wait for the sensor to capture a new image
         ######################################################################
-        self.IR_LED.value(not LED_STATE)
-        self.sensor_sleep(self.time_last_snapshot)
+#        self.sensor_sleep(self.time_last_snapshot)
 
+        while(not sensor.get_frame_available()):
+            time.sleep_us(1)
 
         img = sensor.snapshot()
         self.time_last_snapshot = time.time_ns()  # wait for the sensor to capture a new image
@@ -582,8 +592,12 @@ class GoalTracker(Tracker):
         @return      {*} None
         """
         elapsed = self.sensor_sleep_time - (int((time.time_ns() - last_time_stamp) / 1000))
-        if elapsed > 0:
-            time.sleep_us(elapsed)
+        while elapsed < 0:
+            elapsed += self.sensor_sleep_time
+#        if elapsed >= 0:
+        time.sleep_us(elapsed)
+#        else:
+#            time.sleep_us(self.sensor_sleep_time+ elapsed%self.sensor_sleep_time)
         return None
 
 def line_length(coords):
