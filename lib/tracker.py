@@ -510,11 +510,13 @@ class GoalTracker(Tracker):
         # Get an extra frame buffer and take a snapshot
 
         ##################################################################
-        LED_STATE = True
+        LED_STATE = False
+#        print("no")
 #        self.sensor_sleep(self.time_last_snapshot)
         sensor.skip_frames(1)
         while(not sensor.get_frame_available()):
-            time.sleep_us(1)
+            pass
+#            time.sleep_us(1)
 
 #        self.time_last_snapshot = time.time_ns()   # wait for the sensor to capture a new image
 
@@ -527,7 +529,8 @@ class GoalTracker(Tracker):
 #        self.sensor_sleep(self.time_last_snapshot)
 
         while(not sensor.get_frame_available()):
-            time.sleep_us(1)
+            pass
+#            time.sleep_us(1)
 #        time.sleep_us(int(self.sensor_sleep_time/2))
 
 
@@ -538,7 +541,8 @@ class GoalTracker(Tracker):
 #        self.sensor_sleep(self.time_last_snapshot)
 
         while(not sensor.get_frame_available()):
-            time.sleep_us(1)
+            pass
+#            time.sleep_us(1)
 
         img = sensor.snapshot()
         self.time_last_snapshot = time.time_ns()  # wait for the sensor to capture a new image
