@@ -33,6 +33,7 @@ def init_sensor_target(tracking_type:int=0, isColored:bool=True,
     """
     # We do these whatever mode we are in
     sensor.reset()
+#    sensor.ioctl(sensor.IOCTL_SET_FOV_WIDE, True)
     sensor.set_auto_whitebal(False)
     sensor.set_auto_exposure(False)
     sensor.__write_reg(0xfe, 0b00000000) # change to registers at page 0
@@ -116,16 +117,27 @@ def init_sensor_target(tracking_type:int=0, isColored:bool=True,
     elif isColored and tracking_type == 1:
         # For target tracking, colored
         sensor.reset()
+        sensor.ioctl(sensor.IOCTL_SET_FOV_WIDE, True)
         sensor.set_auto_whitebal(False)
         sensor.set_auto_exposure(False)
         sensor.set_pixformat(sensor.RGB565)
         sensor.__write_reg(0x90, 0b00000110) # disable Neighbor average and enable chroma correction
         sensor.set_framesize(framesize)
-        sensor.set_framerate(frame_rate)
+#        sensor.set_framerate(frame_rate)
         sensor.skip_frames(10)
-        sensor.__write_reg(0x03, 0b00000010) # high bits of exposure control
-        sensor.__write_reg(0x04, 0b01000000) # low bits of exposure control
-        sensor.__write_reg(0xb0, 0b01100000) # global gain
+        if False:# used for off on off
+            sensor.__write_reg(0x03, 0b00000010) # high bits of exposure control
+            sensor.__write_reg(0x04, 0b11000000) # low bits of exposure control
+            sensor.__write_reg(0xb0, 0b01100000) # global gain
+        elif False:# used for on off on
+            sensor.__write_reg(0x03, 0b00000000) # high bits of exposure control
+            sensor.__write_reg(0x04, 0b11110000) # low bits of exposure control
+            sensor.__write_reg(0xb0, 0b01110000) # global gain
+
+        elif True:# used for on off on in highbay during day?
+            sensor.__write_reg(0x03, 0b00000000) # high bits of exposure control
+            sensor.__write_reg(0x04, 0b10000000) # low bits of exposure control
+            sensor.__write_reg(0xb0, 0b01110000) # global gain
 #        # RGB gains
 #        sensor.__write_reg(0xa3, 0b10000000) # G gain odd
 #        sensor.__write_reg(0xa4, 0b10000000) # G gain even
@@ -246,7 +258,7 @@ if __name__ == "__main__":
     PURPLE = [(24, 35, 4, 22, -31, -10)]
 
     GRAY = [(0, 200)]
-    TARGET_COLOR = [(39, 56, -12, 15, 48, 63), (39, 61, -19, 1, 45, 64), (20, 61, -34, 57, -25, 57)] # orange, green
+    TARGET_COLOR = [(54, 90, -56, -11, 11, 70)]#[(39, 56, -12, 15, 48, 63), (39, 61, -19, 1, 45, 64), (20, 61, -34, 57, -25, 57)] # orange, green
     THRESHOLD_UPDATE_RATE = 0.0
     WAIT_TIME_US = 1000000//frame_rate
     ### End Macros
@@ -291,12 +303,12 @@ if __name__ == "__main__":
         if uart.any():
             uart_input = uart.read()
             print(uart_input)
-            if uart_input == b'\x80':
+            if uart_input == b'\x80' and mode == 1:
                 ISCOLORED = True
                 res = mode_initialization(0, mode, ISCOLORED)
                 if res:
                     mode, tracker = res
-            elif uart_input == b'\x81':
+            elif uart_input == b'\x81' and mode == 0:
                 ISCOLORED = False
                 res = mode_initialization(1, mode, ISCOLORED)
                 if res:
