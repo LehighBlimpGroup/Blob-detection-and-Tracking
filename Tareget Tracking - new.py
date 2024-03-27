@@ -37,8 +37,9 @@ def init_sensor_target(tracking_type:int=0, isColored:bool=True,
     sensor.set_auto_exposure(False)
     sensor.__write_reg(0xfe, 0b00000000) # change to registers at page 0
     sensor.__write_reg(0x80, 0b10111100) # enable gamma, CC, edge enhancer, interpolation, de-noise
-    sensor.__write_reg(0x81, 0b01101100) # enable BLK dither mode, low light Y stretch, autogray enable
+    sensor.__write_reg(0x81, 0b01111100) # enable BLK dither mode, low light Y stretch, autogray enable
     sensor.__write_reg(0x82, 0b00000100) # enable anti blur, disable AWB
+    sensor.ioctl(sensor.IOCTL_SET_FOV_WIDE, True)
     sensor.set_framesize(framesize)
     if windowsize is not None:
         sensor.set_windowing(windowsize)
@@ -49,69 +50,25 @@ def init_sensor_target(tracking_type:int=0, isColored:bool=True,
         """ Night """
         sensor.set_pixformat(sensor.RGB565)
         sensor.__write_reg(0x90, 0b00000110) # disable Neighbor average and enable chroma correction
-        sensor.__write_reg(0x03, 0b00000010) # high bits of exposure control
-        sensor.__write_reg(0x04, 0b10000000) # low bits of exposure control
-        sensor.__write_reg(0xb0, 0b11100000) # global gain
+        sensor.__write_reg(0x03, 0b00000000) # high bits of exposure control
+        sensor.__write_reg(0x04, 0b11000000) # low bits of exposure control
+        sensor.__write_reg(0xb0, 0b11000000) # global gain
         # RGB gains
-        sensor.__write_reg(0xa3, 0b10000110) # G gain odd
-        sensor.__write_reg(0xa4, 0b10000110) # G gain even
-        sensor.__write_reg(0xa5, 0b10010000) # R gain odd
-        sensor.__write_reg(0xa6, 0b10010000) # R gain even
-        sensor.__write_reg(0xa7, 0b11100000) # B gain odd
-        sensor.__write_reg(0xa8, 0b11100000) # B gain even
-        sensor.__write_reg(0xa9, 0b10000110) # G gain odd 2
-        sensor.__write_reg(0xaa, 0b10000110) # G gain even 2
+        sensor.__write_reg(0xa3, 0b10001000) # G gain odd
+        sensor.__write_reg(0xa4, 0b10001000) # G gain even
+        sensor.__write_reg(0xa5, 0b10000010) # R gain odd
+        sensor.__write_reg(0xa6, 0b10000010) # R gain even
+        sensor.__write_reg(0xa7, 0b11001100) # B gain odd
+        sensor.__write_reg(0xa8, 0b11001100) # B gain even
+        sensor.__write_reg(0xa9, 0b10001000) # G gain odd 2
+        sensor.__write_reg(0xaa, 0b10001000) # G gain even 2
         sensor.__write_reg(0xfe, 0b00000010) # change to registers at page 2
         # sensor.__write_reg(0xd0, 0b00000000) # change global saturation,
                                                # strangely constrained by auto saturation
         sensor.__write_reg(0xd1, 0b01000000) # change Cb saturation
         sensor.__write_reg(0xd2, 0b01000000) # change Cr saturation
-        sensor.__write_reg(0xd3, 0b00110000) # luma contrast
+        sensor.__write_reg(0xd3, 0b00101000) # luma contrast
         # sensor.__write_reg(0xd5, 0b00000000) # luma offset
-
-
-        """ Day
-        sensor.set_pixformat(sensor.RGB565)
-        sensor.__write_reg(0x03, 0b00000000) # high bits of exposure control
-        sensor.__write_reg(0x04, 0b10000000) # low bits of exposure control
-        sensor.__write_reg(0xb0, 0b11000000) # global gain
-        # RGB gains
-        sensor.__write_reg(0xa3, 0b01110000) # G gain odd
-        sensor.__write_reg(0xa4, 0b01110000) # G gain even
-        sensor.__write_reg(0xa5, 0b01101000) # R gain odd
-        sensor.__write_reg(0xa6, 0b01101000) # R gain even
-        sensor.__write_reg(0xa7, 0b10010000) # B gain odd
-        sensor.__write_reg(0xa8, 0b10010000) # B gain even
-        sensor.__write_reg(0xa9, 0b01110000) # G gain odd 2
-        sensor.__write_reg(0xaa, 0b01110000) # G gain even 2
-        sensor.__write_reg(0xfe, 0b00000010) # change to registers at page 2
-        # sensor.__write_reg(0xd0, 0b00000000) # change global saturation,
-                                               # strangely constrained by auto saturation
-        sensor.__write_reg(0xd1, 0b10100000) # change Cb saturation
-        sensor.__write_reg(0xd2, 0b11100000) # change Cr saturation
-        sensor.__write_reg(0xd3, 0b00010000) # luma contrast
-        # sensor.__write_reg(0xd5, 0b00000000) # luma offset
-        """
-
-        """ Auto color
-        sensor.reset()
-        sensor.set_auto_whitebal(True)
-        sensor.set_auto_exposure(True)
-        sensor.set_pixformat(sensor.RGB565)
-        sensor.set_framesize(framesize)
-        if windowsize is not None:
-            sensor.set_windowing(windowsize)
-        sensor.__write_reg(0xfe, 0b00000000) # change to registers at page 0
-        sensor.__write_reg(0x80, 0b01111111) # enable gamma, CC, edge enhancer, interpolation, de-noise
-        sensor.__write_reg(0x81, 0b01101100) # enable BLK dither mode, low light Y stretch, autogray enable
-        sensor.__write_reg(0x82, 0b00000110) # enable anti blur, enable AWB
-        sensor.__write_reg(0xfe, 0b00000010) # change to registers at page 2
-        # sensor.__write_reg(0xd0, 0b00000000) # change global saturation,
-                                               # strangely constrained by auto saturation
-        sensor.__write_reg(0xd1, 0b01100000) # change Cb saturation
-        sensor.__write_reg(0xd2, 0b01100000) # change Cr saturation
-        """
-
 
     elif isColored and tracking_type == 1:
         # For target tracking, colored
@@ -123,25 +80,25 @@ def init_sensor_target(tracking_type:int=0, isColored:bool=True,
         sensor.set_framesize(framesize)
         sensor.set_framerate(frame_rate)
         sensor.skip_frames(10)
-#        sensor.__write_reg(0x03, 0b00000000) # high bits of exposure control
-#        sensor.__write_reg(0x04, 0b01000000) # low bits of exposure control
-#        sensor.__write_reg(0xb0, 0b10000000) # global gain
-#        # RGB gains
-#        sensor.__write_reg(0xa3, 0b10000000) # G gain odd
-#        sensor.__write_reg(0xa4, 0b10000000) # G gain even
-#        sensor.__write_reg(0xa5, 0b01101000) # R gain odd
-#        sensor.__write_reg(0xa6, 0b01101000) # R gain even
-#        sensor.__write_reg(0xa7, 0b01110100) # B gain odd
-#        sensor.__write_reg(0xa8, 0b01110100) # B gain even
-#        sensor.__write_reg(0xa9, 0b10000000) # G gain odd 2
-#        sensor.__write_reg(0xaa, 0b10000000) # G gain even 2
-#        sensor.__write_reg(0xfe, 0b00000010) # change to registers at page 2
-#        # sensor.__write_reg(0xd0, 0b00000000) # change global saturation,
-#                                               # strangely constrained by auto saturation
-#        sensor.__write_reg(0xd1, 0b01000000) # change Cb saturation
-#        sensor.__write_reg(0xd2, 0b01000000) # change Cr saturation
-#        sensor.__write_reg(0xd3, 0b01000000) # luma contrast
-#        # sensor.__write_reg(0xd5, 0b00000000) # luma offset
+        sensor.__write_reg(0x03, 0b00000000) # high bits of exposure control
+        sensor.__write_reg(0x04, 0b01000000) # low bits of exposure control
+        sensor.__write_reg(0xb0, 0b10000000) # global gain
+        # RGB gains
+        sensor.__write_reg(0xa3, 0b10000000) # G gain odd
+        sensor.__write_reg(0xa4, 0b10000000) # G gain even
+        sensor.__write_reg(0xa5, 0b01101000) # R gain odd
+        sensor.__write_reg(0xa6, 0b01101000) # R gain even
+        sensor.__write_reg(0xa7, 0b01110100) # B gain odd
+        sensor.__write_reg(0xa8, 0b01110100) # B gain even
+        sensor.__write_reg(0xa9, 0b10000000) # G gain odd 2
+        sensor.__write_reg(0xaa, 0b10000000) # G gain even 2
+        sensor.__write_reg(0xfe, 0b00000010) # change to registers at page 2
+        # sensor.__write_reg(0xd0, 0b00000000) # change global saturation,
+                                               # strangely constrained by auto saturation
+        sensor.__write_reg(0xd1, 0b01000000) # change Cb saturation
+        sensor.__write_reg(0xd2, 0b01000000) # change Cr saturation
+        sensor.__write_reg(0xd3, 0b01000000) # luma contrast
+        # sensor.__write_reg(0xd5, 0b00000000) # luma offset
     elif tracking_type == 1:
         # For target tracking, BnW
         sensor.set_pixformat(sensor.GRAYSCALE)
@@ -248,7 +205,7 @@ if __name__ == "__main__":
 
     clock = time.clock()
     ISCOLORED = True
-    mode = 1
+    mode = 0
 
     # Initialize inter-board communication
     # ibus = IBus()
