@@ -29,13 +29,13 @@ old_metric=0
 
 
 lo,hi = -5, 10
-red_threshold =[0, 100, 0, 20, None, None]  #[0, 100, -15, 15, 14, 78] (0, 100, 2, 18, -15, -6)
+red_threshold =[40, 80, -5, 15, None, None]  #[0, 100, -15, 15, 14, 78] (0, 100, 2, 18, -15, -6)
 old_loc = (0,0)
 
 # Color
-cb = -30
+cb = -10
 MIN_CB = cb - 10
-MAX_CB = cb + 15
+MAX_CB = cb + 10
 
 nfc = 0 # not found counter
 blackandwhite=True
@@ -45,17 +45,29 @@ ACTIONS=(-.5,-.3, .3,.5)
 #ACTIONS=[0]
 
 
+img = sensor.snapshot()
+# Define the dimensions of the grid
+GRID_ROWS = 3
+GRID_COLS = 3
+
+# Calculate the size of each cell
+CELL_WIDTH = int(img.width() / GRID_COLS)
+CELL_HEIGHT = int(img.height() / GRID_ROWS)
+
+
 while True:
     clock.tick()
     img = sensor.snapshot()
 
 
-    # action
-    action = random.choice(ACTIONS)
+    # Apply random action
+    #action = random.choice(ACTIONS)
+    u1 = random.uniform(0, 1)
+    u2 = random.uniform(0, 1)
+    action = 2*math.sqrt(-2.0 * math.log(u1)) * math.cos(2 * math.pi * u2)
 
     cb+=action
     cb = min(MAX_CB, max(MIN_CB, cb))
-
 
 
     # B interval
@@ -65,36 +77,23 @@ while True:
 
 
     if blackandwhite:
-        binary_img = img.binary([red_threshold])
+        img = img.binary([red_threshold])
         # Convert the binary image to grayscale
-        binary_img = binary_img.to_grayscale()
-
-        threshold = (80, 100)
+        img = img.to_grayscale()
+        threshold = (0,255)
     else:
+        img = img.binary([red_threshold])
         threshold = red_threshold
 
-    # Define the dimensions of the grid
-    grid_rows = 3
-    grid_cols = 3
-
-    # Calculate the size of each cell
-    cell_width = int(binary_img.width() / grid_cols)
-    cell_height = int(binary_img.height() / grid_rows)
 
 
-    # Draw grid
-#    img.draw_line(cell_width, 0, cell_width, ht, color=(255, 255, 255), thickness=1)
-#    img.draw_line(2*cell_width, 0, 2*cell_width, ht, color=(255, 255, 255), thickness=1)
-#    img.draw_line(0, cell_height, wh, cell_height, color=(255, 255, 255), thickness=1)
-#    img.draw_line(0, 2*cell_height, wh, 2*cell_height, color=(255, 255, 255), thickness=1)
-
-
+    ones = []
 
     # Loop through each cell of the grid
-    for row in range(grid_rows):
-        for col in range(grid_cols):
+    for row in range(GRID_ROWS):
+        for col in range(GRID_COLS):
             # Define the region of interest (ROI) for the current cell
-            roi = (col * cell_width, row * cell_height, cell_width, cell_height)
+            roi = (col * CELL_WIDTH, row * CELL_HEIGHT, CELL_WIDTH, CELL_HEIGHT)
             #print(roi)
 
             # Crop the ROI from the binary image
@@ -107,15 +106,17 @@ while True:
 #            ones_in_cell = stats.mean()
 
             #hist = cropped_roi.get_histogram(bins=2)
-            hist = binary_img.get_histogram(bins=2, roi=roi)
 
+            hist = img.get_histogram(bins=2, roi=roi)
+            #print(hist.bins())
             # Count the number of white pixels (ones) within the current cell
-            ones_in_cell = hist.bins()[1]*cell_width*cell_height
-
+            ones_in_cell = hist.bins()[1] *CELL_WIDTH*CELL_HEIGHT
+            ones.append(ones_in_cell)
             #print(f"Number of ones (white pixels) in cell ({row},{col}):", ones_in_cell)
 
+
             # Draw the number of ones in the corner of the cell
-            binary_img.draw_string(roi[0], roi[1], str(int(ones_in_cell)), color=(255))
+            img.draw_string(roi[0], roi[1], str(int(ones_in_cell)), color=(255))  #
 
 
             # Count the number of white pixels (ones) within the current cell
@@ -124,54 +125,58 @@ while True:
 
 
             # Draw the ROI on the image
-            binary_img.draw_rectangle(roi, color=(int(ones_in_cell)), thickness=1)
+            img.draw_rectangle(roi, color=(int(ones_in_cell * 255 )), thickness=1)
 
 
 
-    print("FPS=", clock.fps())
-    sensor.snapshot().copy(img)
-
-#    blobs = [blob for blob in img.find_blobs([threshold], pixels_threshold=100, area_threshold=400,merge=True)]
-
-#    if blobs:
-#        blob = find_max(blobs)
 
 
+    totalones = max(sum(ones),1)
+    nones=[i/totalones for i in ones]
 
-#        img.draw_edges(blob.min_corners(), color=(255, 0, 0))
-#        img.draw_line(blob.major_axis_line(), color=(0, 255, 0))
-#        img.draw_line(blob.minor_axis_line(), color=(0, 0, 255))
-
-
-
-#        loc = (blob.cxf(), blob.cyf())
-#        d2 = (loc[1]-old_loc[1])**2 + (loc[0]-old_loc[0])**2
-
-#    metric = 0*blob.area() + 300 * blob.density() - 0*100*d2
+    # Compute the mean of the sample vector
+    mean = sum(nones) / len(ones)
+    # Compute the sum of squared differences from the mean
+    squared_diff_sum = sum((x - mean) ** 2 for x in nones)
+    # Compute the variance
+    variance = squared_diff_sum / len(ones)
 
 
-#    if metric < old_metric:
-#        cb-=action
+    metric = variance
 
-#    old_metric = metric
-#    old_loc = loc
-#    print(cb, metric,d2, blob.area(), blob.density(), clock.fps())
+    if metric < old_metric:
+        cb-=action
 
 
+    old_metric = metric
+    #old_loc = loc
 
-#        img.draw_rectangle(blob.rect())
-#        img.draw_cross(blob.cx(), blob.cy())
-#        # Note - the blob rotation is unique to 0-180 only.
-#        img.draw_keypoints(
-#            [(blob.cx(), blob.cy(), int(math.degrees(blob.rotation())))], size=20
-#        )
 
-#        nfc=0
-#    else:
-#        nfc+=1
-##        print("not detected", nfc)
-#        if nfc==10:
-#            cb=random.choice(CB_ALTERNATIVES)
-#            print("reset", cb)
-#            nfc=0
-#            old_metric=-1000
+    if sum(ones)>50:
+        nfc=0
+        print(cb, metric,action, sum(ones),  int(clock.fps()))
+    else:
+        nfc+=1
+        if nfc==10:
+            cb=random.choice(CB_ALTERNATIVES)
+            print("reset", cb)
+            nfc=0
+            old_metric=-1000
+
+
+
+    # Control action
+    left_cells = sum([nones[i*GRID_COLS] for i in range(GRID_ROWS)])
+    right_cells = sum([nones[i*GRID_COLS+(GRID_COLS-1)] for i in range(GRID_ROWS)])
+    up_cells = sum([nones[i] for i in range(GRID_COLS)])
+    down_cells = sum([nones[i+6] for i in range(GRID_COLS)])
+    #print(left_cells, right_cells, up_cells, down_cells)
+    ux = int((right_cells - left_cells) * img.width()) // 3
+    uy = -int((up_cells - down_cells) * img.height()) // 3
+
+
+    x0 = img.width() // 2
+    y0 = img.height() // 2
+    img.draw_arrow(x0, y0, x0+ux , y0+uy, color=(0, 255, 0), size=30, thickness=2)
+
+

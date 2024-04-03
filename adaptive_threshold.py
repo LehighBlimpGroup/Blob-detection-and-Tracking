@@ -43,16 +43,16 @@ old_metric=0
 
 
 lo,hi = -5, 10
-red_threshold =[0, 100, 0, 20, None, None]  #[0, 100, -15, 15, 14, 78] (0, 100, 2, 18, -15, -6)
+red_threshold =[0, 80, -5, 15, None, None]  #[0, 100, -15, 15, 14, 78] (0, 100, 2, 18, -15, -6)
 old_loc = (0,0)
 
 # Color
-cb = -30
+cb = -10
 MIN_CB = cb - 10
 MAX_CB = cb + 15
 
 nfc = 0 # not found counter
-blackandwhite=False
+blackandwhite=True
 
 CB_ALTERNATIVES = [MIN_CB, cb, MAX_CB]
 ACTIONS=(-.5,-.3, .3,.5)
@@ -90,45 +90,37 @@ while True:
     else:
         threshold = red_threshold
 
-    blobs = [blob for blob in img.find_blobs([threshold], pixels_threshold=100, area_threshold=400,merge=True)]
+    blobs = [blob for blob in img.find_blobs([threshold], pixels_threshold=100, area_threshold=300,merge=True)]
+
+    total_hist = img.get_histogram(thresholds=[threshold],bins=2)
+    ones = total_hist.bins()[1] * img.width()*img.height()
+
 #    print(len(blobs))
 #    for blob in img.find_blobs([threshold], pixels_threshold=50, area_threshold=100,merge=True):
     if blobs:
         blob = find_max(blobs)
 
-
-#    for blob in img.find_blobs([(80, 100)], pixels_threshold=100, area_threshold=100,merge=True):
-        # These values depend on the blob not being circular - otherwise they will be shaky.
-#        if blob.elongation() > 0.8:
         img.draw_edges(blob.min_corners(), color=(255, 0, 0))
         img.draw_line(blob.major_axis_line(), color=(0, 255, 0))
         img.draw_line(blob.minor_axis_line(), color=(0, 0, 255))
-        # These values are stable all the time.
-
-        #    print())
 
 
-    #        if blob.density()<old_density or blob.density()<.5:
-    #            hi+=1
-    #        else:
-    #            hi-=1
-    #            if hi<5:
-    #                hi=5
-    #        old_density=blob.density()
+        #loc = (blob.cxf(), blob.cyf())
+        #d2 = (loc[1]-old_loc[1])**2 + (loc[0]-old_loc[0])**2
 
+        metric = 0*blob.area() + 100 * blob.density()
 
-        loc = (blob.cxf(), blob.cyf())
-        d2 = (loc[1]-old_loc[1])**2 + (loc[0]-old_loc[0])**2
-
-        metric = 0*blob.area() + 300 * blob.density() - 0*100*d2
-
+        hist = img.get_histogram(thresholds=[threshold],bins=2, roi=blob.rect())
+        # Count the number of white pixels (ones) within the current cell
+        ones_in_cell = hist.bins()[1] *blob.rect()[2] * blob.rect()[3]
+        metric = ones_in_cell-ones
 
         if metric < old_metric:
             cb-=action
 
         old_metric = metric
-        old_loc = loc
-        print(cb, metric,d2, blob.area(), blob.density(), clock.fps())
+        #old_loc = loc
+        print(cb, metric, blob.area(), blob.density(), clock.fps())
 
 
 
