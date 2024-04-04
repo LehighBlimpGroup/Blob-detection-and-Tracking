@@ -248,7 +248,7 @@ class BLOBTracker(Tracker):
                 return None, 0x0
 
         # Track the blob
-        self.clock.tick()
+
         img = sensor.snapshot()
         list_of_blobs = img.find_blobs(
             self.current_thresholds,
@@ -292,8 +292,6 @@ class BLOBTracker(Tracker):
             x0, y0, w, h = [math.floor(self.tracked_blob.feature_vector[i]) for i in range(4)]
             img.draw_rectangle(x0, y0, w, h)
             img.draw_rectangle(self.roi.get_roi(), color=(255, 255, 0))
-            st = "FPS: {}".format(str(round(self.clock.fps(), 2)))
-            img.draw_string(0, 0, st, color=(255, 0, 0))
         return self.tracked_blob.feature_vector, flag
 
     def find_reference(
@@ -312,7 +310,7 @@ class BLOBTracker(Tracker):
         """
 
         nice_blobs = []  # A list of good blobs
-        self.clock.tick()
+
         img = sensor.snapshot()
         list_of_blob = img.find_blobs(
             self.original_thresholds,
@@ -469,8 +467,6 @@ class GoalTracker(Tracker):
             x0, y0, w, h = [math.floor(self.tracked_blob.feature_vector[i]) for i in range(4)]
             img.draw_rectangle(x0, y0, w, h, color=(255, 0, 0))
             img.draw_rectangle(self.roi.get_roi(), color=(128, 128, 0))
-            st = "FPS: {}".format(str(round(self.clock.fps(), 2)))
-            img.draw_string(0, 0, st, color=(0, 0, 0))
             img.flush()
         return self.tracked_blob.feature_vector, flag
 
@@ -485,7 +481,7 @@ class GoalTracker(Tracker):
         @return      {tuple} The reference blob and its color statistics
         """
         omv.disable_fb(False)
-        self.clock.tick()
+
         img, nice_blobs = self.detect(isColored=True, edge_removal=False)
         img.flush()
         if not nice_blobs:
@@ -508,13 +504,16 @@ class GoalTracker(Tracker):
     def detect(self, isColored=False, edge_removal=True):
         omv.disable_fb(True)  # No show on screen
         # Get an extra frame buffer and take a snapshot
-
+        self.clock.tick()
         ##################################################################
-        LED_STATE = True
+        LED_STATE = False
+#        print("no")
 #        self.sensor_sleep(self.time_last_snapshot)
-        sensor.skip_frames(1)
+        self.IR_LED.value(not LED_STATE)
+        sensor.skip_frames(2)
         while(not sensor.get_frame_available()):
-            time.sleep_us(1)
+            pass
+#            time.sleep_us(1)
 
 #        self.time_last_snapshot = time.time_ns()   # wait for the sensor to capture a new image
 
@@ -527,7 +526,8 @@ class GoalTracker(Tracker):
 #        self.sensor_sleep(self.time_last_snapshot)
 
         while(not sensor.get_frame_available()):
-            time.sleep_us(1)
+            pass
+#            time.sleep_us(1)
 #        time.sleep_us(int(self.sensor_sleep_time/2))
 
 
@@ -538,7 +538,8 @@ class GoalTracker(Tracker):
 #        self.sensor_sleep(self.time_last_snapshot)
 
         while(not sensor.get_frame_available()):
-            time.sleep_us(1)
+            pass
+#            time.sleep_us(1)
 
         img = sensor.snapshot()
         self.time_last_snapshot = time.time_ns()  # wait for the sensor to capture a new image
@@ -546,6 +547,7 @@ class GoalTracker(Tracker):
         #IR_LED.value(not LED_STATE)
 
 
+        self.IR_LED.value(False)
         img.sub(self.extra_fb2, reverse=LED_STATE)
         self.extra_fb3.replace(img)
         img.replace(self.extra_fb)
@@ -570,6 +572,8 @@ class GoalTracker(Tracker):
 
         )
 
+        st = "FPS: {}".format(str(round(self.clock.fps(), 2)))
+        img.draw_string(0, 0, st, color=(255, 0, 0))
         # sensor.dealloc_extra_fb()
         omv.disable_fb(False)
         big_blobs=[]
