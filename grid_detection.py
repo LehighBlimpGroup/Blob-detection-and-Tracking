@@ -22,8 +22,8 @@ clock = time.clock()
 
 old_metric = 0
 
-lo, hi = -5, 10
-red_threshold = [40, 80, -5, 15, None, None]  # [0, 100, -15, 15, 14, 78] (0, 100, 2, 18, -15, -6)
+lo, hi = -5, 5
+red_threshold = [40, 80, 0, 12, None, None]  # [0, 100, -15, 15, 14, 78] (0, 100, 2, 18, -15, -6)
 old_loc = (0, 0)
 
 # Color
@@ -39,13 +39,41 @@ ACTIONS = (-.5, -.3, .3, .5)
 # ACTIONS=[0]
 
 
+
+def checksum(arr, initial= 0):
+    """ The last pair of byte is the checksum on iBus
+    """
+    sum = initial
+    for a in arr:
+        sum += a
+    checksum = 0xFFFF - sum
+    chA = checksum >> 8
+    chB = checksum & 0xFF
+    return chA, chB
+
+def IBus_message(message_arr_to_send):
+    msg = bytearray(32)
+    msg[0] = 0x20
+    msg[1] = 0x40
+    for i in range(len(message_arr_to_send)):
+        msg_byte_tuple = bytearray(message_arr_to_send[i].to_bytes(2, 'little'))
+        msg[int(2*i + 2)] = msg_byte_tuple[0]
+        msg[int(2*i + 3)] = msg_byte_tuple[1]
+
+    # Perform the checksume
+    chA, chB = checksum(msg[:-2], 0)
+    msg[-1] = chA
+    msg[-2] = chB
+    return msg
+
+
 def _normal_dist(mu=0, sigma=1):
     u1 = random.uniform(0, 1)
     u2 = random.uniform(0, 1)
     return mu + sigma*math.sqrt(-2.0 * math.log(u1)) * math.cos(2 * math.pi * u2)
 
 class GridDetector:
-    def __int__(self, num_rows, num_cols, img_width, img_height):
+    def __init__(self, num_rows, num_cols, img_width, img_height):
         self.num_rows = num_rows
         self.num_cols = num_cols
         self.cell_width = int(img_width / num_cols)
@@ -113,26 +141,27 @@ class GridDetector:
 
 
 
-img = sensor.snapshot()
-detector = GridDetector(3, 3, img.width(), img.height())
 
 
 
 
-
+print("Start")
 
 if __name__ == "__main__":
+
+    img = sensor.snapshot()
+    detector = GridDetector(3, 3, img.width(), img.height())
 
     # Initialize UART
     uart = UART("LP1", 115200, timeout_char=2000)  # (TX, RX) = (P1, P0) = (PB14, PB15)
 
     while True:
         clock.tick()
+
         img = sensor.snapshot()
 
-        # Apply random action
-        # action = random.choice(ACTIONS)
 
+#        # Apply random action
         action = _normal_dist(sigma=2)
         cb += action
         cb = min(MAX_CB, max(MIN_CB, cb))
@@ -201,6 +230,7 @@ if __name__ == "__main__":
         # Send message
         uart.write(msg)
 
+#        print(clock.fps(), detector.num_rows)
         # Receive message
         # if uart.any():
         #     uart_input = uart.read()
