@@ -15,46 +15,112 @@ import random
 #from lib.Ibus import IBus
 from pyb import UART
 
+#sensor.reset()
+#sensor.ioctl(sensor.IOCTL_SET_FOV_WIDE, True)
+#sensor.set_framesize(sensor.HQVGA)
+#sensor.set_pixformat(sensor.RGB565)
+#sensor.skip_frames(time=2000)
+
+#def init_sensor_target(tracking_type:int=0, isColored:bool=True,
+#                       framesize=sensor.HQVGA, windowsize=None) -> None:
+
+# We do these whatever mode we are in
 sensor.reset()
+sensor.set_auto_whitebal(True)
+sensor.set_auto_exposure(True)
+sensor.set_pixformat(sensor.RGB565)
 sensor.ioctl(sensor.IOCTL_SET_FOV_WIDE, True)
 sensor.set_framesize(sensor.HQVGA)
-sensor.set_pixformat(sensor.RGB565)
-sensor.skip_frames(time=2000)
 
+sensor.set_auto_whitebal(False)
+sensor.set_auto_exposure(False)
 
+""" sensor setup
+"""
 
-clock = time.clock()
-
-
-#sensor.__write_reg(0xfe, 0) # change to registers at page 0
+sensor.__write_reg(0xfe, 0) # change to registers at page 0
 sensor.__write_reg(0x80, 0b01111110)    # [7] reserved, [6] gamma enable, [5] CC enable,
-#                                        # [4] Edge enhancement enable
-#                                        # [3] Interpolation enable, [2] DN enable, [1] DD enable,
-#                                        # [0] Lens-shading correction enable - gives you uneven
-#                                        #                                      shade in the dark
-#                                        #                                      badly!!!!!
-#sensor.__write_reg(0x81, 0b01010100)    # [7] BLK dither mode, [6] low light Y stretch enable
-#                                        # [5] skin detection enable, [4] reserved, [3] new skin mode
-#                                        # [2] autogray enable, [1] reserved, [0] BFF test image mode
-#sensor.__write_reg(0x82, 0b00000100)    # [2] ABS enable, [1] AWB enable
-##sensor.__write_reg(0x87, 0b00000001)    # [0] auto_edge_effect
-#sensor.__write_reg(0x9a, 0b00001111)    # [3] smooth Y, [2] smooth Chroma,
-#                                        # [1] neighbor average mode, [0] subsample extend opclk
-### color setup - saturation
-#sensor.__write_reg(0xfe, 2)     # change to registers at page 2
-#sensor.__write_reg(0xd0, 200)    # change global saturation,
-#sensor.__write_reg(0xd1, 48)    # Cb saturation
-#sensor.__write_reg(0xd2, 48)    # Cr saturation
-#sensor.__write_reg(0xd3, 64)    # contrast
-#sensor.__write_reg(0xd5, 0)     # luma offset
+                                        # [4] Edge enhancement enable
+                                        # [3] Interpolation enable, [2] DN enable, [1] DD enable,
+                                        # [0] Lens-shading correction enable - gives you uneven
+                                        #                                      shade in the dark
+                                        #                                      badly!!!!!
+sensor.__write_reg(0x81, 0b01010100)    # [7] BLK dither mode, [6] low light Y stretch enable
+                                        # [5] skin detection enable, [4] reserved, [3] new skin mode
+                                        # [2] autogray enable, [1] reserved, [0] BFF test image mode
+sensor.__write_reg(0x82, 0b00000100)    # [2] ABS enable, [1] AWB enable
+#sensor.__write_reg(0x87, 0b00000001)    # [0] auto_edge_effect
+sensor.__write_reg(0x9a, 0b00001111)    # [3] smooth Y, [2] smooth Chroma,
+                                        # [1] neighbor average mode, [0] subsample extend opclk
+sensor.skip_frames(time = 1000)
+print("block enabling done")
+
+# Edge enhancements
+sensor.__write_reg(0xfe, 2)             # change to registers at page 2
+sensor.__write_reg(0x90, 0b11101101)    # [7]edge1_mode, [6]HP3_mode, [5]edge2_mode, [4]Reserved,
+                                        # [3]LP_intp_en, [2]LP_edge_en, [1]NA, [0] half_scale_mode_en
+sensor.__write_reg(0x91, 0b11000000)    # [7]HP_mode1, [6]HP_mode2,
+                                        # [5]only 2 direction - only two direction H and V, [4]NA
+                                        # [3]only_defect_map, [2]map_dir, [1:0]reserved
+sensor.__write_reg(0x96, 0b00001100)    # [3:2] edge leve
+sensor.__write_reg(0x97, 0x88)          # [7:4] edge1 effect, [3:0] edge2 effect
+sensor.__write_reg(0x9b, 0b00100010)    # [7:4] edge1 threshold, [3:0] edge2 threshold
+sensor.skip_frames(time = 1000)
+print("edge enhancement done")
+
+# color correction -- this is very tricky: the color shifts on the color wheel it seems
+sensor.__write_reg(0xfe, 2) # change to registers at page 2
+# WARNING: uncomment the two lines to invert the color
+#sensor.__write_reg(0xc1, 0x80)          # CC_CT1_11, feels like elements in a matrix
+#sensor.__write_reg(0xc5, 0x80)          # CC_CT1_22 , feels like elements in a matrix
+print("color correction setup done")
+
+# ABS - anti-blur
+sensor.__write_reg(0xfe, 1)             # change to registers at page 1
+sensor.__write_reg(0x9a, 0b11110111)    # [7:4] add dynamic range, [2:0] abs adjust every frame
+sensor.__write_reg(0x9d, 0xff)          # [7:0] Y stretch limit
+sensor.skip_frames(time = 1000)
+print("anti-blur setup done")
 
 
-nfc = 0  # not found counter
-blackandwhite = True
+# color settings -- AWB
+""" Ranting about the trickiness of the setup:
+    Even the auto white balance is disabled, the AWB gains will persist to
+    take effect. Although the correcponding registers are read-only in the
+    document, they are actually manually writeable, and such writings are
+    effective. On top of these messes, another set of registers that are
+    R/W have the exact same effect on the RGB gains, but they are not
+    controlled by the AWB.
+"""
+sensor.set_auto_exposure(False)
+sensor.set_auto_whitebal(False) # no, the gain_rgb_db does not work
+
+# reset RGB auto gains
+sensor.__write_reg(0xb3, 64)    # reset R auto gain
+sensor.__write_reg(0xb4, 64)    # reset G auto gain
+sensor.__write_reg(0xb5, 64)    # reset B auto gain
+
+sensor.__write_reg(0xfe, 0)     # change to registers at page 0
+                                # manually set RGB gains to fix color/white balance
+sensor.__write_reg(0xad, 64)    # R gain ratio
+sensor.__write_reg(0xae, 56)    # G gain ratio
+sensor.__write_reg(0xaf, 88)    # B gain ratio
+sensor.set_auto_exposure(True)
+sensor.skip_frames(time = 1000)
+print("AWB Gain setup done.")
+
+
+# color setup - saturation
+sensor.__write_reg(0xfe, 2)     # change to registers at page 2
+sensor.__write_reg(0xd0, 128)    # change global saturation,
+sensor.__write_reg(0xd1, 48)    # Cb saturation
+sensor.__write_reg(0xd2, 48)    # Cr saturation
+sensor.__write_reg(0xd3, 40)    # contrast
+sensor.__write_reg(0xd5, 0)     # luma offset
 
 
 
-N_BINS=50
+
 
 
 def distance_point_to_segment(point, segment):
@@ -147,19 +213,19 @@ class GridDetector:
 
                 ### metric ####
                 # Distance to the line segment
-#                mean_ref = (5,-6)
+#                mean_ref = (23,-21)
 #                std_ref=(4, 5)
 #                d_mean = math.sqrt((mean_ref[0]-a_mean)**2 + (mean_ref[1]-b_mean)**2)
 #                d_std = math.sqrt((std_ref[0]-a_std)**2 + (std_ref[1]-b_std)**2)
 
                 point = (a_mean, b_mean)
-                mean_line_ref = ((8, -8), (14, -16))  # represetend as a line
+                mean_line_ref = ((15, -15), (25, -25))  # represetend as a line
                 d_mean = distance_point_to_segment(point, mean_line_ref)
 
 
-                MAX_DIST=10
-                STD_RANGE_A =(3,12)
-                STD_RANGE_B =(3,12)
+                MAX_DIST = 10
+                STD_RANGE_A =(8,30)
+                STD_RANGE_B =(8,30)
 
                 # Clamp max distance
                 d_mean=d_mean if d_mean<MAX_DIST else MAX_DIST
@@ -172,7 +238,7 @@ class GridDetector:
                 if not STD_RANGE_A[0]<a_std<STD_RANGE_A[1] or not STD_RANGE_B[0]<b_std<STD_RANGE_B[1]:
                     metric = 0
                 # Too much lightening
-                if not 10<l_mean<50:
+                if not 10<l_mean<60:
                     metric=0
 
                 metrics.append(metric)
@@ -187,7 +253,7 @@ class GridDetector:
                 # print(f"Number of ones (white pixels) in cell ({row},{col}):", ones_in_cell)
 
                 # Draw the number of ones in the corner of the cell
-                img.draw_string(roi[0], roi[1],"{:.1f}".format(metric) , color=(255))  #
+                img.draw_string(roi[0], roi[1],"{:.1f}".format(metric) , color=(0,255,0))  #
 
                 # Draw the ROI on the image
                 img.draw_rectangle(roi, color=(int(metric*2*255)), thickness=1)
@@ -218,6 +284,9 @@ class GridDetector:
         return row_sum
 
     def action(self, metric):
+        totalm= sum(metric) if sum(metric)>0 else 1
+        metric = [m / totalm for m in metric]
+
         # Counting
         left_cells = sum([self.count_column(metric, i) for i in range(N_COLS//2) ])
         right_cells = sum([self.count_column(metric, N_COLS-i-1) for i in range(N_COLS//2) ])
@@ -257,6 +326,7 @@ N_ROWS = 4
 N_COLS = 5
 if __name__ == "__main__":
 
+    clock = time.clock()
     img = sensor.snapshot()
     detector = GridDetector(N_ROWS, N_COLS, img.width(), img.height())
 
