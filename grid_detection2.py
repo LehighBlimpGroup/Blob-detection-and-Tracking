@@ -7,11 +7,12 @@
 # This script shows off the binary image filter. You may pass binary any
 # number of thresholds to segment the image by.
 
+import array
 import sensor, image
 import time
 import math
 import random
-from lib.Ibus import IBus
+#from lib.Ibus import IBus
 from pyb import UART
 
 sensor.reset()
@@ -26,7 +27,7 @@ clock = time.clock()
 
 
 #sensor.__write_reg(0xfe, 0) # change to registers at page 0
-#sensor.__write_reg(0x80, 0b01111110)    # [7] reserved, [6] gamma enable, [5] CC enable,
+sensor.__write_reg(0x80, 0b01111110)    # [7] reserved, [6] gamma enable, [5] CC enable,
 #                                        # [4] Edge enhancement enable
 #                                        # [3] Interpolation enable, [2] DN enable, [1] DD enable,
 #                                        # [0] Lens-shading correction enable - gives you uneven
@@ -137,6 +138,7 @@ class GridDetector:
                 # Copy the ROI from the original image
                 stats = img.copy(roi=roi).get_statistics()
 ##                # Calculate the mean and variance of the ROI
+                l_mean = stats.l_mean()
                 a_mean = stats.a_mean()
                 b_mean = stats.b_mean()
                 a_std = stats.a_stdev()
@@ -145,22 +147,32 @@ class GridDetector:
 
                 ### metric ####
                 # Distance to the line segment
-                mean_ref = (5,-6)
-                std_ref=(4, 5)
-                d_mean = math.sqrt((mean_ref[0]-a_mean)**2 + (mean_ref[1]-b_mean)**2)
-                d_std = math.sqrt((std_ref[0]-a_std)**2 + (std_ref[1]-b_std)**2)
+#                mean_ref = (5,-6)
+#                std_ref=(4, 5)
+#                d_mean = math.sqrt((mean_ref[0]-a_mean)**2 + (mean_ref[1]-b_mean)**2)
+#                d_std = math.sqrt((std_ref[0]-a_std)**2 + (std_ref[1]-b_std)**2)
+
+                point = (a_mean, b_mean)
+                mean_line_ref = ((8, -8), (14, -16))  # represetend as a line
+                d_mean = distance_point_to_segment(point, mean_line_ref)
 
 
                 MAX_DIST=10
-                MAX_STD=(8,8)
+                STD_RANGE_A =(3,12)
+                STD_RANGE_B =(3,12)
 
                 # Clamp max distance
                 d_mean=d_mean if d_mean<MAX_DIST else MAX_DIST
 
-
+                # Compute metric
                 metric = 1 - d_mean/MAX_DIST
+#                metric *= metric  # square of the distance
 
-                if a_std>MAX_STD[0] or b_std>MAX_STD[1]:
+                # Data is too spread
+                if not STD_RANGE_A[0]<a_std<STD_RANGE_A[1] or not STD_RANGE_B[0]<b_std<STD_RANGE_B[1]:
+                    metric = 0
+                # Too much lightening
+                if not 10<l_mean<50:
                     metric=0
 
                 metrics.append(metric)
@@ -212,6 +224,19 @@ class GridDetector:
         up_cells =  sum([self.count_row(metric, i) for i in range(N_ROWS//2) ])
         down_cells = sum([self.count_row(metric, N_ROWS-i-1) for i in range(N_ROWS//2) ])
 
+
+#        maxim = 0
+#        max_id = -1
+#        # Find the index of the maximum value
+#        for i in range(self.num_rows):
+#            for j in range(self.num_cols):
+#                m = metric[i+j*self.num_cols]
+#                if m>maxim:
+#                    m=maxim
+
+
+        ux, uy = 0,0
+
         # Control action
         # print(left_cells, right_cells, up_cells, down_cells)
         ux = int((right_cells - left_cells) * img.width()) // 3
@@ -228,8 +253,8 @@ class GridDetector:
 
 print("Start")
 
-N_ROWS = 3
-N_COLS = 3
+N_ROWS = 4
+N_COLS = 5
 if __name__ == "__main__":
 
     img = sensor.snapshot()

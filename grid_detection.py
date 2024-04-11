@@ -15,21 +15,47 @@ from lib.Ibus import IBus
 from pyb import UART
 
 sensor.reset()
+sensor.ioctl(sensor.IOCTL_SET_FOV_WIDE, True)
 sensor.set_framesize(sensor.HQVGA)
 sensor.set_pixformat(sensor.RGB565)
 sensor.skip_frames(time=2000)
+
+
+
+sensor.__write_reg(0xfe, 0) # change to registers at page 0
+sensor.__write_reg(0x80, 0b01111110)    # [7] reserved, [6] gamma enable, [5] CC enable,
+                                        # [4] Edge enhancement enable
+                                        # [3] Interpolation enable, [2] DN enable, [1] DD enable,
+                                        # [0] Lens-shading correction enable - gives you uneven
+                                        #                                      shade in the dark
+                                        #                                      badly!!!!!
+sensor.__write_reg(0x81, 0b01010100)    # [7] BLK dither mode, [6] low light Y stretch enable
+                                        # [5] skin detection enable, [4] reserved, [3] new skin mode
+                                        # [2] autogray enable, [1] reserved, [0] BFF test image mode
+sensor.__write_reg(0x82, 0b00000100)    # [2] ABS enable, [1] AWB enable
+#sensor.__write_reg(0x87, 0b00000001)    # [0] auto_edge_effect
+sensor.__write_reg(0x9a, 0b00001111)    # [3] smooth Y, [2] smooth Chroma,
+                                        # [1] neighbor average mode, [0] subsample extend opclk
+## color setup - saturation
+sensor.__write_reg(0xfe, 2)     # change to registers at page 2
+sensor.__write_reg(0xd0, 200)    # change global saturation,
+sensor.__write_reg(0xd1, 48)    # Cb saturation
+sensor.__write_reg(0xd2, 48)    # Cr saturation
+sensor.__write_reg(0xd3, 64)    # contrast
+sensor.__write_reg(0xd5, 0)     # luma offset
+
 clock = time.clock()
 
 old_metric = 0
 
 lo, hi = -5, 5
-red_threshold = [40, 80, 0, 12, None, None]  # [0, 100, -15, 15, 14, 78] (0, 100, 2, 18, -15, -6)
+red_threshold = [0, 60, 0, 10, None, None]  # [0, 100, -15, 15, 14, 78] (0, 100, 2, 18, -15, -6)
 old_loc = (0, 0)
 
 # Color
-cb = -10
-MIN_CB = cb - 10
-MAX_CB = cb + 10
+cb = -5
+MIN_CB = - 20
+MAX_CB = -10
 
 nfc = 0  # not found counter
 blackandwhite = True
@@ -153,7 +179,7 @@ if __name__ == "__main__":
     detector = GridDetector(3, 3, img.width(), img.height())
 
     # Initialize UART
-    uart = UART("LP1", 115200, timeout_char=2000)  # (TX, RX) = (P1, P0) = (PB14, PB15)
+#    uart = UART("LP1", 115200, timeout_char=2000)  # (TX, RX) = (P1, P0) = (PB14, PB15)
 
     while True:
         clock.tick()
@@ -162,7 +188,7 @@ if __name__ == "__main__":
 
 
 #        # Apply random action
-        action = _normal_dist(sigma=2)
+        action = _normal_dist(sigma=1)
         cb += action
         cb = min(MAX_CB, max(MIN_CB, cb))
 
@@ -228,7 +254,7 @@ if __name__ == "__main__":
 
 
         # Send message
-        uart.write(msg)
+#        uart.write(msg)
 
 #        print(clock.fps(), detector.num_rows)
         # Receive message
