@@ -133,8 +133,8 @@ class LogOddFilter:
         self.init_belif = math.log(p_x/(1-p_x))
         self.l_det = math.log(p_det/(1-p_det))
         self.l_ndet = math.log(p_ndet / (1 - p_ndet))
-        self.L = [0 for _ in range(n)]
-        self.P = [0 for _ in range(n)]
+        self.L = [0. for _ in range(n)]
+        self.P = [0. for _ in range(n)]
 
 
     def update(self, measurements):
