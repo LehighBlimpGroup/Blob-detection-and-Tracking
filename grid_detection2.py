@@ -221,13 +221,13 @@ class GridDetector:
 #                d_std = math.sqrt((std_ref[0]-a_std)**2 + (std_ref[1]-b_std)**2)
 
                 point = (a_mean, b_mean)
-                mean_line_ref = ((8, -8), (25, -25))  # represetend as a line
+                mean_line_ref = ((6, -6), (25, -25))  # represetend as a line
                 d_mean = distance_point_to_segment(point, mean_line_ref)
 
 
-                MAX_DIST = 10
-                STD_RANGE_A =(8,30)
-                STD_RANGE_B =(8,30)
+                MAX_DIST = 8
+                STD_RANGE_A =(3,30)
+                STD_RANGE_B =(3,30)
 
                 # Clamp max distance
                 d_mean=d_mean if d_mean<MAX_DIST else MAX_DIST
@@ -255,7 +255,7 @@ class GridDetector:
                 # print(f"Number of ones (white pixels) in cell ({row},{col}):", ones_in_cell)
 
                 # Draw the number of ones in the corner of the cell
-                img.draw_string(roi[0], roi[1],"{:d}".format(metric*10) , color=(0,255,0))  #
+                img.draw_string(roi[0], roi[1],str(int(metric*10)) , color=(0,255,0))  #
 
                 # Draw the ROI on the image
                 img.draw_rectangle(roi, color=(int(metric*2*255)), thickness=1)
@@ -324,8 +324,8 @@ class GridDetector:
 
 print("Start")
 
-N_ROWS = 12
-N_COLS = 16
+N_ROWS = 8
+N_COLS = 12
 if __name__ == "__main__":
 
     clock = time.clock()
