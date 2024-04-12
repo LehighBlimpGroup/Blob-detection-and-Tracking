@@ -103,7 +103,7 @@ sensor.__write_reg(0xb5, 64)    # reset B auto gain
 sensor.__write_reg(0xfe, 0)     # change to registers at page 0
                                 # manually set RGB gains to fix color/white balance
 sensor.__write_reg(0xad, 64)    # R gain ratio
-sensor.__write_reg(0xae, 56)    # G gain ratio
+sensor.__write_reg(0xae, 60)  # G gain ratio
 sensor.__write_reg(0xaf, 88)    # B gain ratio
 sensor.set_auto_exposure(True)
 sensor.skip_frames(time = 1000)
@@ -193,16 +193,18 @@ class GridDetector:
             for col in range(self.num_cols):
                 # Define the region of interest (ROI) for the current cell
                 roi = (col * self.cell_width, row * self.cell_height, self.cell_width, self.cell_height)
-#                hist = img.get_histogram(bins=N_BINS, roi=roi)
+                img_roi = img.copy(roi=roi)
+
+#                hist = img_roi.get_histogram(bins=20)
 #                a_bins = hist.a_bins()
 #                b_bins = hist.b_bins()
 
 #                mean1 = sum(a_bins)
-                #print(mean1)
+                #print(mean1))
 
-
+                #print(hist.get_statistics())
                 # Copy the ROI from the original image
-                stats = img.copy(roi=roi).get_statistics()
+                stats = img_roi.get_statistics()
 ##                # Calculate the mean and variance of the ROI
                 l_mean = stats.l_mean()
                 a_mean = stats.a_mean()
@@ -219,7 +221,7 @@ class GridDetector:
 #                d_std = math.sqrt((std_ref[0]-a_std)**2 + (std_ref[1]-b_std)**2)
 
                 point = (a_mean, b_mean)
-                mean_line_ref = ((15, -15), (25, -25))  # represetend as a line
+                mean_line_ref = ((8, -8), (25, -25))  # represetend as a line
                 d_mean = distance_point_to_segment(point, mean_line_ref)
 
 
@@ -242,7 +244,7 @@ class GridDetector:
                     metric=0
 
                 metrics.append(metric)
-                print(metric, a_mean, b_mean, a_std, b_std)
+                #print(metric, a_mean, b_mean, a_std, b_std)
                 #variance = img.stdev(roi=roi)
 
 
@@ -253,7 +255,7 @@ class GridDetector:
                 # print(f"Number of ones (white pixels) in cell ({row},{col}):", ones_in_cell)
 
                 # Draw the number of ones in the corner of the cell
-                img.draw_string(roi[0], roi[1],"{:.1f}".format(metric) , color=(0,255,0))  #
+                img.draw_string(roi[0], roi[1],"{:d}".format(metric*10) , color=(0,255,0))  #
 
                 # Draw the ROI on the image
                 img.draw_rectangle(roi, color=(int(metric*2*255)), thickness=1)
@@ -308,8 +310,8 @@ class GridDetector:
 
         # Control action
         # print(left_cells, right_cells, up_cells, down_cells)
-        ux = int((right_cells - left_cells) * img.width()) // 3
-        uy = -int((up_cells - down_cells) * img.height()) // 3
+        ux = int((right_cells - left_cells) * img.width()) // N_COLS
+        uy = -int((up_cells - down_cells) * img.height()) // N_ROWS
 
         return ux, uy
 
@@ -322,8 +324,8 @@ class GridDetector:
 
 print("Start")
 
-N_ROWS = 4
-N_COLS = 5
+N_ROWS = 12
+N_COLS = 16
 if __name__ == "__main__":
 
     clock = time.clock()
