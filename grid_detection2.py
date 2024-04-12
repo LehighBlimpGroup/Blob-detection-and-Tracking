@@ -122,6 +122,36 @@ sensor.__write_reg(0xd5, 0)     # luma offset
 
 
 
+class LogOddFilter:
+    def __init__(self, n, p_det=0.8, p_ndet=0.01, p_x=0.05):
+        """
+
+        p_x: Probability of having a balloon in a cell
+
+        """
+
+        self.init_belif = math.log(p_x/(1-p_x))
+        self.l_det = math.log(p_det/(1-p_det))
+        self.l_ndet = math.log(p_ndet / (1 - p_ndet))
+        self.L = [0 for _ in range(n)]
+        self.P = [0 for _ in range(n)]
+
+
+    def update(self, measurements):
+        for i, z in enumerate(measurements):
+            li = self.l_det if z else self.l_ndet
+            self.L[i]+= li -self.init_belif
+        return self.L
+
+    def probabilities(self):
+        for i, l in enumerate(self.L):
+            print(l)
+            self.P[i] = 1. / (1.+math.exp(-l))
+        return self.P
+
+
+
+
 
 def distance_point_to_segment(point, segment):
     x1, y1 = segment[0]
@@ -326,11 +356,13 @@ print("Start")
 
 N_ROWS = 8
 N_COLS = 12
+FILTER = False
 if __name__ == "__main__":
 
     clock = time.clock()
     img = sensor.snapshot()
     detector = GridDetector(N_ROWS, N_COLS, img.width(), img.height())
+    filter = LogOddFilter(N_ROWS * N_COLS)
 
     # Initialize UART
 #    uart = UART("LP1", 115200, timeout_char=2000)  # (TX, RX) = (P1, P0) = (PB14, PB15)
@@ -349,8 +381,9 @@ if __name__ == "__main__":
         metric_grid = detector.count(img)
 
 
-
-
+        if FILTER:
+            filter.update(metric_grid)
+            metric_grid = filter.probabilities()
 #        nones = detector.normalize(ones)
 #        mean, variance = detector.statistics(nones)
 
