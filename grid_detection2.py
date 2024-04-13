@@ -14,6 +14,7 @@ import math
 import random
 #from lib.Ibus import IBus
 from pyb import UART
+from pyb import LED
 
 #sensor.reset()
 #sensor.ioctl(sensor.IOCTL_SET_FOV_WIDE, True)
@@ -103,8 +104,8 @@ sensor.__write_reg(0xb5, 64)    # reset B auto gain
 sensor.__write_reg(0xfe, 0)     # change to registers at page 0
                                 # manually set RGB gains to fix color/white balance
 sensor.__write_reg(0xad, 64)    # R gain ratio
-sensor.__write_reg(0xae, 60)  # G gain ratio
-sensor.__write_reg(0xaf, 88)    # B gain ratio
+sensor.__write_reg(0xae, 62)    # G gain ratio
+sensor.__write_reg(0xaf, 92)    # B gain ratio
 sensor.set_auto_exposure(True)
 sensor.skip_frames(time = 1000)
 print("AWB Gain setup done.")
@@ -123,7 +124,7 @@ sensor.__write_reg(0xd5, 0)     # luma offset
 
 
 class LogOddFilter:
-    def __init__(self, n, p_det=0.8, p_ndet=0.01, p_x=0.05):
+    def __init__(self, n, p_det=0.5, p_ndet=0.005, p_x=0.1):
         """
 
         p_x: Probability of having a balloon in a cell
@@ -143,10 +144,15 @@ class LogOddFilter:
             self.L[i]+= li -self.init_belif
         return self.L
 
+
     def probabilities(self):
         for i, l in enumerate(self.L):
-            print(l)
-            self.P[i] = 1. / (1.+math.exp(-l))
+            if l > 10:
+                self.P[i] = 1.0
+            elif l < -10:
+                self.P[i] = 0.0
+            else:
+                self.P[i] = 1. / (1.+math.exp(-l))
         return self.P
 
 
@@ -251,16 +257,16 @@ class GridDetector:
 #                d_std = math.sqrt((std_ref[0]-a_std)**2 + (std_ref[1]-b_std)**2)
 
                 point = (a_mean, b_mean)
-                mean_line_ref = ((6, -6), (25, -25))  # represetend as a line
+                mean_line_ref = ((8, -8), (25, -25))  # represetend as a line
                 d_mean = distance_point_to_segment(point, mean_line_ref)
 
 
                 MAX_DIST = 8
-                STD_RANGE_A =(3,30)
-                STD_RANGE_B =(3,30)
+                STD_RANGE_A =(3,25)
+                STD_RANGE_B =(3,25)
 
                 # Clamp max distance
-                d_mean=d_mean if d_mean<MAX_DIST else MAX_DIST
+                d_mean = d_mean if d_mean<MAX_DIST else MAX_DIST
 
                 # Compute metric
                 metric = 1 - d_mean/MAX_DIST
@@ -269,9 +275,10 @@ class GridDetector:
                 # Data is too spread
                 if not STD_RANGE_A[0]<a_std<STD_RANGE_A[1] or not STD_RANGE_B[0]<b_std<STD_RANGE_B[1]:
                     metric = 0
+
                 # Too much lightening
                 if not 10<l_mean<60:
-                    metric=0
+                    metric = 0.0
 
                 metrics.append(metric)
                 #print(metric, a_mean, b_mean, a_std, b_std)
@@ -346,10 +353,28 @@ class GridDetector:
         return ux, uy
 
 
+    def weighted_average(self, metrics):
+        cell_row = self.num_rows/2.0 - 0.5
+        cell_col = self.num_cols/2.0 - 0.5
 
+        sum_score = sum(metrics)
+        if sum_score > 0:
+            led_blue.on()
+            led_red.on()
+            cell_row = 0.0
+            cell_col = 0.0
+            for row in range(self.num_rows):
+                for col in range(self.num_cols):
+                    index = row*self.num_cols + col
+                    cell_row += (metrics[index] * row)
+                    cell_col += (metrics[index] * col)
 
-
-
+            cell_row /= sum_score
+            cell_col /= sum_score
+        else:
+            led_blue.off()
+            led_red.off()
+        return cell_row + 0.5, cell_col + 0.5, sum_score
 
 
 print("Start")
@@ -357,7 +382,15 @@ print("Start")
 N_ROWS = 8
 N_COLS = 12
 FILTER = False
+
 if __name__ == "__main__":
+    # uart settings
+    uart = UART("LP1", 115200, timeout_char=2000) # (TX, RX) = (P1, P0) = (PB14, PB15)
+
+    # LED indicator
+    led_red = LED(1)
+    led_green = LED(2)
+    led_blue = LED(3)
 
     clock = time.clock()
     img = sensor.snapshot()
@@ -407,43 +440,36 @@ if __name__ == "__main__":
 #                nfc = 0
 #                old_metric = -1000
 
-
+        total_score = sum(metric_grid)
         ux, uy = detector.action(metric_grid)
+        # average_cell_y, average_cell_x, total_score = detector.weighted_average(metric_grid)
+        # x1 = int((average_cell_x)*(img.width()//N_COLS))
+        # y1 = int((average_cell_y)*(img.height()//N_ROWS))
 
         x0 = img.width() // 2
         y0 = img.height() // 2
-        img.draw_arrow(x0, y0, x0 + ux, y0 + uy, color=(0, 255, 0), size=30, thickness=2)
+        x1 = x0 + ux
+        y1 = y0 + uy
+        img.draw_circle(x1, y1, int(total_score*5), color=(255, 0, 0), thickness=2)
 
-        print((clock.fps()))
+        print("fps:\t", clock.fps())
 
-#        # Create message for ESP32
-#        flag = 0b10000000
-#        x_roi,y_roi = ux, uy
-#        w_roi, h_roi = 10,10
-#        x_value,y_value = ux, uy
-#        w_value = 10
-#        h_value = 10
-#        dis = 9999  # Time of flight sensor fixme
+        # Create message for ESP32
+        flag = 0b10000000
+        x_roi,y_roi = x1, y1
+        w_roi, h_roi = 10, 10
+        x_value,y_value = x1, y1
 
-#        msg = IBus_message([flag, x_roi, y_roi, w_roi, h_roi,
-#                            x_value, y_value, w_value, h_value, dis])
+        print("x, y:\t\t", x_roi, y_roi, total_score)
+        msg = IBus_message([flag, x_roi, y_roi, w_roi, h_roi,
+                            x_value, y_value, img.width()//N_COLS, img.height()//N_ROWS,
+                            int(total_score*5)])
 
+
+        # Receive message
+        if uart.any():
+            uart_input = uart.read()
+            print(uart_input)
 
         # Send message
-#        uart.write(msg)
-
-#        print(clock.fps(), detector.num_rows)
-        # Receive message
-        # if uart.any():
-        #     uart_input = uart.read()
-        #     print(uart_input)
-        #     if uart_input == b'\x80' and mode == 1:
-        #         ISCOLORED = True
-        #         res = mode_initialization(0, mode, ISCOLORED)
-        #         if res:
-        #             mode, tracker = res
-        #     elif uart_input == b'\x81' and mode == 0:
-        #         ISCOLORED = False
-        #         res = mode_initialization(1, mode, ISCOLORED)
-        #         if res:
-        #             mode, tracker = res
+        uart.write(msg)
