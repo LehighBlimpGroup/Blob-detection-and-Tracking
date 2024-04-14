@@ -124,7 +124,7 @@ sensor.__write_reg(0xd5, 0)     # luma offset
 
 
 class LogOddFilter:
-    def __init__(self, n, p_det=0.5, p_ndet=0.005, p_x=0.1):
+    def __init__(self, n, p_det=0.95, p_ndet=0.1, p_x=0.5):
         """
 
         p_x: Probability of having a balloon in a cell
@@ -136,22 +136,24 @@ class LogOddFilter:
         self.l_ndet = math.log(p_ndet / (1 - p_ndet))
         self.L = [0. for _ in range(n)]
         self.P = [0. for _ in range(n)]
+        print("Initial belief ", self.init_belif, self.l_det, self.l_ndet )
 
 
-    def update(self, measurements):
+    def update(self, measurements, l_max=100, l_min=-10):
         for i, z in enumerate(measurements):
+            # Detected or not detected
             li = self.l_det if z else self.l_ndet
+            # Belief for li
             self.L[i]+= li -self.init_belif
+            # Cap
+            self.L[i] = min(l_max, max(l_min, self.L[i]))
+
+
         return self.L
 
 
     def probabilities(self):
         for i, l in enumerate(self.L):
-            if l > 10:
-                self.P[i] = 1.0
-            elif l < -10:
-                self.P[i] = 0.0
-            else:
                 self.P[i] = 1. / (1.+math.exp(-l))
         return self.P
 
@@ -231,17 +233,9 @@ class GridDetector:
                 roi = (col * self.cell_width, row * self.cell_height, self.cell_width, self.cell_height)
                 img_roi = img.copy(roi=roi)
 
-#                hist = img_roi.get_histogram(bins=20)
-#                a_bins = hist.a_bins()
-#                b_bins = hist.b_bins()
-
-#                mean1 = sum(a_bins)
-                #print(mean1))
-
-                #print(hist.get_statistics())
                 # Copy the ROI from the original image
                 stats = img_roi.get_statistics()
-##                # Calculate the mean and variance of the ROI
+                # Calculate the mean and variance of the ROI
                 l_mean = stats.l_mean()
                 a_mean = stats.a_mean()
                 b_mean = stats.b_mean()
@@ -251,11 +245,6 @@ class GridDetector:
 
                 ### metric ####
                 # Distance to the line segment
-#                mean_ref = (23,-21)
-#                std_ref=(4, 5)
-#                d_mean = math.sqrt((mean_ref[0]-a_mean)**2 + (mean_ref[1]-b_mean)**2)
-#                d_std = math.sqrt((std_ref[0]-a_std)**2 + (std_ref[1]-b_std)**2)
-
                 point = (a_mean, b_mean)
                 mean_line_ref = ((8, -8), (25, -25))  # represetend as a line
                 d_mean = distance_point_to_segment(point, mean_line_ref)
@@ -281,15 +270,6 @@ class GridDetector:
                     metric = 0.0
 
                 metrics.append(metric)
-                #print(metric, a_mean, b_mean, a_std, b_std)
-                #variance = img.stdev(roi=roi)
-
-
-                #print(mean) #"a_bins"
-                # Count the number of white pixels (ones) within the current cell
-                #ones_in_cell = hist.bins()[1] * self.cell_width * self.cell_height
-                #ones.append(ones_in_cell)
-                # print(f"Number of ones (white pixels) in cell ({row},{col}):", ones_in_cell)
 
                 # Draw the number of ones in the corner of the cell
                 img.draw_string(roi[0], roi[1],str(int(metric*10)) , color=(0,255,0))  #
@@ -333,16 +313,6 @@ class GridDetector:
         down_cells = sum([self.count_row(metric, N_ROWS-i-1) for i in range(N_ROWS//2) ])
 
 
-#        maxim = 0
-#        max_id = -1
-#        # Find the index of the maximum value
-#        for i in range(self.num_rows):
-#            for j in range(self.num_cols):
-#                m = metric[i+j*self.num_cols]
-#                if m>maxim:
-#                    m=maxim
-
-
         ux, uy = 0,0
 
         # Control action
@@ -381,7 +351,7 @@ print("Start")
 
 N_ROWS = 8
 N_COLS = 12
-FILTER = False
+FILTER = True
 
 if __name__ == "__main__":
     # uart settings
@@ -397,64 +367,24 @@ if __name__ == "__main__":
     detector = GridDetector(N_ROWS, N_COLS, img.width(), img.height())
     filter = LogOddFilter(N_ROWS * N_COLS)
 
-    flag = 0
+    # Initialize UART
+#    uart = UART("LP1", 115200, timeout_char=2000)  # (TX, RX) = (P1, P0) = (PB14, PB15)
+
     while True:
         clock.tick()
 
         img = sensor.snapshot()
-        # Load the image from flash memory
-#        img_from_flash = image.Image("bw.jpg")  # Load the image using its filename
-        #mutable_img = img_from_flash.copy()
 
-#        sensor.snapshot().copy(mutable_img)
-#        mutable_img.get_histogram()
-
+        # Detect
         metric_grid = detector.count(img)
 
 
         if FILTER:
             filter.update(metric_grid)
             metric_grid = filter.probabilities()
-#        nones = detector.normalize(ones)
-#        mean, variance = detector.statistics(nones)
 
-
-#        metric = variance
-
-#        if metric < old_metric:
-#            cb -= action
-
-#        old_metric = metric
-
-
-#        if sum(ones) > 50:
-#            nfc = 0
-#            print(cb, metric, action, sum(ones), int(clock.fps()))
-#        else:
-#            nfc += 1
-#            if nfc == 10:
-#                cb = random.choice(CB_ALTERNATIVES)
-#                print("reset", cb)
-#                nfc = 0
-#                old_metric = -1000
-
-        total_score = sum(metric_grid)
-        if total_score > 0:
-            led_red.on()
-            led_blue.on()
-            if flag:
-                flag = 3 - flag
-            else:
-                flag = 1
-        else:
-            led_red.off()
-            led_blue.off()
-            flag = 0
-
+        total_score = max(metric_grid)
         ux, uy = detector.action(metric_grid)
-        # average_cell_y, average_cell_x, total_score = detector.weighted_average(metric_grid)
-        # x1 = int((average_cell_x)*(img.width()//N_COLS))
-        # y1 = int((average_cell_y)*(img.height()//N_ROWS))
 
         x0 = img.width() // 2
         y0 = img.height() // 2
@@ -465,12 +395,13 @@ if __name__ == "__main__":
         print("fps:\t", clock.fps())
 
         # Create message for ESP32
+        flag = 0b10000000
         x_roi,y_roi = x1, y1
         w_roi, h_roi = 10, 10
         x_value,y_value = x1, y1
 
-        print("flag, x, y, score:\t", bin(flag), x_roi, y_roi, total_score)
-        msg = IBus_message([flag | 0x40, x_roi, y_roi, w_roi, h_roi,
+        print("x, y:\t\t", x_roi, y_roi, total_score)
+        msg = IBus_message([flag, x_roi, y_roi, w_roi, h_roi,
                             x_value, y_value, img.width()//N_COLS, img.height()//N_ROWS,
                             int(total_score*5)])
 
