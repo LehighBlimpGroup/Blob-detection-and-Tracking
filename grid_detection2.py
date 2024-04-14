@@ -25,6 +25,11 @@ from pyb import LED
 #def init_sensor_target(tracking_type:int=0, isColored:bool=True,
 #                       framesize=sensor.HQVGA, windowsize=None) -> None:
 
+
+
+R_GAIN, G_GAIN, B_GAIN = 64, 69, 91
+
+
 # We do these whatever mode we are in
 sensor.reset()
 sensor.set_auto_whitebal(True)
@@ -103,9 +108,9 @@ sensor.__write_reg(0xb5, 64)    # reset B auto gain
 
 sensor.__write_reg(0xfe, 0)     # change to registers at page 0
                                 # manually set RGB gains to fix color/white balance
-sensor.__write_reg(0xad, 64)    # R gain ratio
-sensor.__write_reg(0xae, 62)    # G gain ratio
-sensor.__write_reg(0xaf, 75)    # B gain ratio
+sensor.__write_reg(0xad, R_GAIN)    # R gain ratio
+sensor.__write_reg(0xae, G_GAIN)    # G gain ratio
+sensor.__write_reg(0xaf, B_GAIN)    # B gain ratio
 sensor.set_auto_exposure(True)
 sensor.skip_frames(time = 1000)
 print("AWB Gain setup done.")
@@ -136,10 +141,10 @@ class LogOddFilter:
         self.l_ndet = math.log(p_ndet / (1 - p_ndet))
         self.L = [0. for _ in range(n)]
         self.P = [0. for _ in range(n)]
-        print("Initial belief ", self.init_belif, self.l_det, self.l_ndet )
+        print("Initial belief=", self.init_belif, "L for detection=", self.l_det, "L for not detection", self.l_ndet )
 
 
-    def update(self, measurements, l_max=100, l_min=-10):
+    def update(self, measurements, l_max=10, l_min=-10):
         for i, z in enumerate(measurements):
             # Detected or not detected
             li = self.l_det if z else self.l_ndet
@@ -154,35 +159,14 @@ class LogOddFilter:
 
     def probabilities(self):
         for i, l in enumerate(self.L):
-                self.P[i] = 1. / (1.+math.exp(-l))
+                self.P[i] = 1. / (1. + math.exp(-l))
         return self.P
 
 
 
 
 
-def distance_point_to_segment(point, segment):
-    x1, y1 = segment[0]
-    x2, y2 = segment[1]
-    x0, y0 = point
 
-    dx = x2 - x1
-    dy = y2 - y1
-
-    # Compute the dot product of the vector from the first endpoint of the segment to the point
-    # with the vector of the segment
-    dot_product = ((x0 - x1) * dx + (y0 - y1) * dy) / (dx * dx + dy * dy)
-
-    # Clamp the dot product to ensure the closest point lies within the line segment
-    t = max(0, min(1, dot_product))
-
-    # Calculate the coordinates of the closest point on the line segment
-    closest_point = (x1 + t * dx, y1 + t * dy)
-
-    # Calculate the distance between the given point and the closest point
-    distance = math.sqrt((x0 - closest_point[0]) ** 2 + (y0 - closest_point[1]) ** 2)
-
-    return distance
 
 
 def checksum(arr, initial= 0):
@@ -212,6 +196,66 @@ def IBus_message(message_arr_to_send):
     return msg
 
 
+class ColorDistance:
+    def __init__(self, color_id, line_ref, max_dist, std_range):
+        self.color_id = color_id
+        self.line_ref = line_ref
+        self.max_dist = max_dist
+        self.std_range = std_range
+
+
+    def distance(self, point, std):
+        (l, a, b) = point
+        d =  self.distance_point_to_segment((a,b), self.line_ref)
+
+        # Clamp max distance
+        d = d if d<self.max_dist else self.max_dist
+
+        # Distnace is 1 if close to the line, and 0 if outside the line
+        d = 1 - d / self.max_dist
+#                metric *= metric  # square of the distance
+
+        # Data is too spread
+#                if not STD_RANGE_A[0]<a_std<STD_RANGE_A[1] or not STD_RANGE_B[0]<b_std<STD_RANGE_B[1]:
+#                    metric = 0
+
+        # Check if the standar deviation is not in range
+#        for s in std:
+#            if not self.std_range[0] <= s <= self.std_range[1]:
+#                d = 0
+#                break
+
+#        # Too much lightening
+        if not 10 < l < 60:  #fixme magic numbers
+            d = 0.0
+
+        return d
+
+
+
+    def distance_point_to_segment(self, point, segment):
+        x1, y1 = segment[0]
+        x2, y2 = segment[1]
+        x0, y0 = point
+
+        dx = x2 - x1
+        dy = y2 - y1
+
+        # Compute the dot product of the vector from the first endpoint of the segment to the point
+        # with the vector of the segment
+        dot_product = ((x0 - x1) * dx + (y0 - y1) * dy) / (dx * dx + dy * dy)
+
+        # Clamp the dot product to ensure the closest point lies within the line segment
+        t = max(0, min(1, dot_product))
+
+        # Calculate the coordinates of the closest point on the line segment
+        closest_point = (x1 + t * dx, y1 + t * dy)
+
+        # Calculate the distance between the given point and the closest point
+        distance = math.sqrt((x0 - closest_point[0]) ** 2 + (y0 - closest_point[1]) ** 2)
+
+        return distance
+
 def _normal_dist(mu=0, sigma=1):
     u1 = random.uniform(0, 1)
     u2 = random.uniform(0, 1)
@@ -224,7 +268,7 @@ class GridDetector:
         self.cell_width = int(img_width / num_cols)
         self.cell_height = int(img_height / num_rows)
 
-    def count(self, img):
+    def count(self, img, distancer):
         metrics = []
         # Loop through each cell of the grid
         for row in range(self.num_rows):
@@ -233,50 +277,36 @@ class GridDetector:
                 roi = (col * self.cell_width, row * self.cell_height, self.cell_width, self.cell_height)
                 img_roi = img.copy(roi=roi)
 
-                # Copy the ROI from the original image
-                stats = img_roi.get_statistics()
                 # Calculate the mean and variance of the ROI
-                l_mean = stats.l_mean()
-                a_mean = stats.a_mean()
-                b_mean = stats.b_mean()
-                a_std = stats.a_stdev()
-                b_std = stats.b_stdev()
+                s = img_roi.get_statistics()
 
+                # metric is the distance
+                d_mean = distancer.distance((s.l_mean(), s.a_mean(), s.b_mean()),
+                                            (s.l_stdev(), s.a_stdev(), s.b_stdev()))
 
-                ### metric ####
-                # Distance to the line segment
-                point = (a_mean, b_mean)
-                mean_line_ref = ((8, -8), (25, -25))  # represetend as a line
-                d_mean = distance_point_to_segment(point, mean_line_ref)
+                if row==0:
+                    print ((s.a_mean(), s.b_mean(), d_mean), end=', ')
 
+                metrics.append(d_mean)
 
-                MAX_DIST = 8
-                STD_RANGE_A =(3,25)
-                STD_RANGE_B =(3,25)
+        return metrics
 
-                # Clamp max distance
-                d_mean = d_mean if d_mean<MAX_DIST else MAX_DIST
+    def plot_metric(self, metrics):
 
-                # Compute metric
-                metric = 1 - d_mean/MAX_DIST
-#                metric *= metric  # square of the distance
+        for row in range(self.num_rows):
+            for col in range(self.num_cols):
+                roi = (col * self.cell_width, row * self.cell_height, self.cell_width, self.cell_height)
 
-                # Data is too spread
-                if not STD_RANGE_A[0]<a_std<STD_RANGE_A[1] or not STD_RANGE_B[0]<b_std<STD_RANGE_B[1]:
-                    metric = 0
+                metric = metrics[row*self.num_cols + col]
 
-                # Too much lightening
-                if not 10<l_mean<60:
-                    metric = 0.0
-
-                metrics.append(metric)
+#                if row!=5:
+#                    continue
 
                 # Draw the number of ones in the corner of the cell
-                img.draw_string(roi[0], roi[1],str(int(metric*10)) , color=(0,255,0))  #
+#                img.draw_string(roi[0], roi[1],str(int(metric*10)) , color=(0,255,0))  #
 
                 # Draw the ROI on the image
-                img.draw_rectangle(roi, color=(int(metric*2*255)), thickness=1)
-        return metrics
+                img.draw_rectangle(roi, color=(int(metric*255),int(metric*255),int(metric*255)), thickness=1)
 
     def normalize(self, ones):
         totalones = max(sum(ones), 1)
@@ -353,6 +383,9 @@ N_ROWS = 8
 N_COLS = 12
 FILTER = True
 
+
+
+
 if __name__ == "__main__":
     # uart settings
     uart = UART("LP1", 115200, timeout_char=2000) # (TX, RX) = (P1, P0) = (PB14, PB15)
@@ -367,8 +400,8 @@ if __name__ == "__main__":
     detector = GridDetector(N_ROWS, N_COLS, img.width(), img.height())
     filter = LogOddFilter(N_ROWS * N_COLS)
 
-    # Initialize UART
-#    uart = UART("LP1", 115200, timeout_char=2000)  # (TX, RX) = (P1, P0) = (PB14, PB15)
+    # Color distance
+    cdist = ColorDistance("Purple", line_ref = ((4, -8), (18, -33)), max_dist=4, std_range=(5,30))
 
     while True:
         clock.tick()
@@ -376,13 +409,14 @@ if __name__ == "__main__":
         img = sensor.snapshot()
 
         # Detect
-        metric_grid = detector.count(img)
+        metric_grid = detector.count(img, cdist)
 
 
         if FILTER:
             filter.update(metric_grid)
             metric_grid = filter.probabilities()
 
+        detector.plot_metric(metric_grid)
         total_score = max(metric_grid)
         ux, uy = detector.action(metric_grid)
 
@@ -390,9 +424,10 @@ if __name__ == "__main__":
         y0 = img.height() // 2
         x1 = x0 + ux
         y1 = y0 + uy
-        img.draw_circle(x1, y1, int(total_score*5), color=(255, 0, 0), thickness=2)
+#        img.draw_circle(x1, y1, 1, color=(255, 0, 0), thickness=2)
+#        img.draw_circle(x1, y1, int(total_score*img.height()/4), color=(255, 0, 0), thickness=2)
 
-        print("fps:\t", clock.fps())
+        print("fps:\t", clock.fps(), end='\t')
 
         # Create message for ESP32
         flag = 0b10000000
@@ -400,10 +435,10 @@ if __name__ == "__main__":
         w_roi, h_roi = 10, 10
         x_value,y_value = x1, y1
 
-        print("x, y:\t\t", x_roi, y_roi, total_score)
+        print("x, y =", x_roi, y_roi,"\t metric=", metric_grid[5*N_ROWS:6*N_ROWS])
         msg = IBus_message([flag, x_roi, y_roi, w_roi, h_roi,
                             x_value, y_value, img.width()//N_COLS, img.height()//N_ROWS,
-                            int(total_score*5)])
+                            int(total_score*10)])
 
 
         # Receive message
