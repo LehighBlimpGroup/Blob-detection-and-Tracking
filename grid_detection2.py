@@ -105,7 +105,7 @@ sensor.__write_reg(0xfe, 0)     # change to registers at page 0
                                 # manually set RGB gains to fix color/white balance
 sensor.__write_reg(0xad, 64)    # R gain ratio
 sensor.__write_reg(0xae, 62)    # G gain ratio
-sensor.__write_reg(0xaf, 92)    # B gain ratio
+sensor.__write_reg(0xaf, 75)    # B gain ratio
 sensor.set_auto_exposure(True)
 sensor.skip_frames(time = 1000)
 print("AWB Gain setup done.")
@@ -397,9 +397,7 @@ if __name__ == "__main__":
     detector = GridDetector(N_ROWS, N_COLS, img.width(), img.height())
     filter = LogOddFilter(N_ROWS * N_COLS)
 
-    # Initialize UART
-#    uart = UART("LP1", 115200, timeout_char=2000)  # (TX, RX) = (P1, P0) = (PB14, PB15)
-
+    flag = 0
     while True:
         clock.tick()
 
@@ -441,6 +439,18 @@ if __name__ == "__main__":
 #                old_metric = -1000
 
         total_score = sum(metric_grid)
+        if total_score > 0:
+            led_red.on()
+            led_blue.on()
+            if flag:
+                flag = 3 - flag
+            else:
+                flag = 1
+        else:
+            led_red.off()
+            led_blue.off()
+            flag = 0
+
         ux, uy = detector.action(metric_grid)
         # average_cell_y, average_cell_x, total_score = detector.weighted_average(metric_grid)
         # x1 = int((average_cell_x)*(img.width()//N_COLS))
@@ -455,13 +465,12 @@ if __name__ == "__main__":
         print("fps:\t", clock.fps())
 
         # Create message for ESP32
-        flag = 0b10000000
         x_roi,y_roi = x1, y1
         w_roi, h_roi = 10, 10
         x_value,y_value = x1, y1
 
-        print("x, y:\t\t", x_roi, y_roi, total_score)
-        msg = IBus_message([flag, x_roi, y_roi, w_roi, h_roi,
+        print("flag, x, y, score:\t", bin(flag), x_roi, y_roi, total_score)
+        msg = IBus_message([flag | 0x40, x_roi, y_roi, w_roi, h_roi,
                             x_value, y_value, img.width()//N_COLS, img.height()//N_ROWS,
                             int(total_score*5)])
 
