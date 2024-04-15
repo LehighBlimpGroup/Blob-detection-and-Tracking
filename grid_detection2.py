@@ -8,12 +8,15 @@
 # number of thresholds to segment the image by.
 
 import array
+
+
 import sensor, image
 import time
 import math
 import random
 #from lib.Ibus import IBus
 from pyb import UART
+from pyb import LED
 
 #sensor.reset()
 #sensor.ioctl(sensor.IOCTL_SET_FOV_WIDE, True)
@@ -23,6 +26,11 @@ from pyb import UART
 
 #def init_sensor_target(tracking_type:int=0, isColored:bool=True,
 #                       framesize=sensor.HQVGA, windowsize=None) -> None:
+
+
+PRINT_CORNER = True
+R_GAIN, G_GAIN, B_GAIN = 64, 64, 98
+
 
 # We do these whatever mode we are in
 sensor.reset()
@@ -102,9 +110,9 @@ sensor.__write_reg(0xb5, 64)    # reset B auto gain
 
 sensor.__write_reg(0xfe, 0)     # change to registers at page 0
                                 # manually set RGB gains to fix color/white balance
-sensor.__write_reg(0xad, 64)    # R gain ratio
-sensor.__write_reg(0xae, 56)    # G gain ratio
-sensor.__write_reg(0xaf, 88)    # B gain ratio
+sensor.__write_reg(0xad, R_GAIN)    # R gain ratio
+sensor.__write_reg(0xae, G_GAIN)    # G gain ratio
+sensor.__write_reg(0xaf, B_GAIN)    # B gain ratio
 sensor.set_auto_exposure(True)
 sensor.skip_frames(time = 1000)
 print("AWB Gain setup done.")
@@ -122,29 +130,44 @@ sensor.__write_reg(0xd5, 0)     # luma offset
 
 
 
+class LogOddFilter:
+    def __init__(self, n, p_det=0.95, p_ndet=0.1, p_x=0.5):
+        """
 
-def distance_point_to_segment(point, segment):
-    x1, y1 = segment[0]
-    x2, y2 = segment[1]
-    x0, y0 = point
+        p_x: Probability of having a balloon in a cell
 
-    dx = x2 - x1
-    dy = y2 - y1
+        """
 
-    # Compute the dot product of the vector from the first endpoint of the segment to the point
-    # with the vector of the segment
-    dot_product = ((x0 - x1) * dx + (y0 - y1) * dy) / (dx * dx + dy * dy)
+        self.init_belif = math.log(p_x/(1-p_x))
+        self.l_det = math.log(p_det/(1-p_det))
+        self.l_ndet = math.log(p_ndet / (1 - p_ndet))
+        self.L = [0. for _ in range(n)]
+        self.P = [0. for _ in range(n)]
+        print("Initial belief=", self.init_belif, "L for detection=", self.l_det, "L for not detection", self.l_ndet )
 
-    # Clamp the dot product to ensure the closest point lies within the line segment
-    t = max(0, min(1, dot_product))
 
-    # Calculate the coordinates of the closest point on the line segment
-    closest_point = (x1 + t * dx, y1 + t * dy)
+    def update(self, measurements, l_max=10, l_min=-10):
+        for i, z in enumerate(measurements):
+            # Detected or not detected
+            li = self.l_det if z else self.l_ndet
+            # Belief for li
+            self.L[i]+= li -self.init_belif
+            # Cap
+            self.L[i] = min(l_max, max(l_min, self.L[i]))
 
-    # Calculate the distance between the given point and the closest point
-    distance = math.sqrt((x0 - closest_point[0]) ** 2 + (y0 - closest_point[1]) ** 2)
 
-    return distance
+        return self.L
+
+    def probabilities(self):
+        for i, l in enumerate(self.L):
+                self.P[i] = 1. / (1. + math.exp(-l))
+        return self.P
+
+
+
+
+
+
 
 
 def checksum(arr, initial= 0):
@@ -174,90 +197,117 @@ def IBus_message(message_arr_to_send):
     return msg
 
 
+class ColorDetector:
+
+
+    def __init__(self, color_id, line_ref, max_dist, std_range):
+        self.color_id = color_id
+        self.line_ref = line_ref
+        self.max_dist = max_dist
+        self.std_range = std_range
+
+        self.filter = LogOddFilter(N_ROWS * N_COLS)
+
+        self.metric = [0. for _ in range(N_COLS*N_ROWS)]
+
+    def distance(self, point, std):
+        (l, a, b) = point
+        d =  self.distance_point_to_segment((a,b), self.line_ref)
+
+        # Clamp max distance
+        d = d if d<self.max_dist else self.max_dist
+
+        # Distnace is 1 if close to the line, and 0 if outside the line
+        d = 1 - d / self.max_dist
+
+        # Too much lightening
+        if not 10 < l < 60:  #fixme magic numbers
+            d = 0.0
+
+        return d
+
+
+    def update_cell(self, row, col, point, std):
+        d = self.distance(point, std)
+        self.metric[row * N_COLS + col] = d
+        return d
+
+
+    def update_filter(self):
+        self.filter.update(self.metric)
+        return self.filter.probabilities()
+
+    def distance_point_to_segment(self, point, segment):
+        x1, y1 = segment[0]
+        x2, y2 = segment[1]
+        x0, y0 = point
+
+        dx = x2 - x1
+        dy = y2 - y1
+
+        # Compute the dot product of the vector from the first endpoint of the segment to the point
+        # with the vector of the segment
+        dot_product = ((x0 - x1) * dx + (y0 - y1) * dy) / (dx * dx + dy * dy)
+
+        # Clamp the dot product to ensure the closest point lies within the line segment
+        t = max(0, min(1, dot_product))
+
+        # Calculate the coordinates of the closest point on the line segment
+        closest_point = (x1 + t * dx, y1 + t * dy)
+
+        # Calculate the distance between the given point and the closest point
+        distance = math.sqrt((x0 - closest_point[0]) ** 2 + (y0 - closest_point[1]) ** 2)
+
+        return distance
+
 def _normal_dist(mu=0, sigma=1):
     u1 = random.uniform(0, 1)
     u2 = random.uniform(0, 1)
     return mu + sigma*math.sqrt(-2.0 * math.log(u1)) * math.cos(2 * math.pi * u2)
 
-class GridDetector:
+class Grid:
     def __init__(self, num_rows, num_cols, img_width, img_height):
         self.num_rows = num_rows
         self.num_cols = num_cols
         self.cell_width = int(img_width / num_cols)
         self.cell_height = int(img_height / num_rows)
 
-    def count(self, img):
-        metrics = []
+    def count(self, img, detectors):
         # Loop through each cell of the grid
         for row in range(self.num_rows):
             for col in range(self.num_cols):
                 # Define the region of interest (ROI) for the current cell
                 roi = (col * self.cell_width, row * self.cell_height, self.cell_width, self.cell_height)
-#                hist = img.get_histogram(bins=N_BINS, roi=roi)
-#                a_bins = hist.a_bins()
-#                b_bins = hist.b_bins()
+                img_roi = img.copy(roi=roi)
 
-#                mean1 = sum(a_bins)
-                #print(mean1)
+                # Calculate the mean and variance of the ROI
+                s = img_roi.get_statistics()
 
+                for detector in detectors:
+                    d_mean = detector.update_cell(row, col, (s.l_mean(), s.a_mean(), s.b_mean()),
+                                                (s.l_stdev(), s.a_stdev(), s.b_stdev()))
 
-                # Copy the ROI from the original image
-                stats = img.copy(roi=roi).get_statistics()
-##                # Calculate the mean and variance of the ROI
-                l_mean = stats.l_mean()
-                a_mean = stats.a_mean()
-                b_mean = stats.b_mean()
-                a_std = stats.a_stdev()
-                b_std = stats.b_stdev()
+                if PRINT_CORNER and row<3 and col<3:
+                    print((s.a_mean(), s.b_mean()), end=', ')
+
+            if PRINT_CORNER:
+                print()
 
 
-                ### metric ####
-                # Distance to the line segment
-#                mean_ref = (23,-21)
-#                std_ref=(4, 5)
-#                d_mean = math.sqrt((mean_ref[0]-a_mean)**2 + (mean_ref[1]-b_mean)**2)
-#                d_std = math.sqrt((std_ref[0]-a_std)**2 + (std_ref[1]-b_std)**2)
 
-                point = (a_mean, b_mean)
-                mean_line_ref = ((15, -15), (25, -25))  # represetend as a line
-                d_mean = distance_point_to_segment(point, mean_line_ref)
+    def plot_metric(self, metrics):
 
+        for row in range(self.num_rows):
+            for col in range(self.num_cols):
+                roi = (col * self.cell_width, row * self.cell_height, self.cell_width, self.cell_height)
 
-                MAX_DIST = 10
-                STD_RANGE_A =(8,30)
-                STD_RANGE_B =(8,30)
-
-                # Clamp max distance
-                d_mean=d_mean if d_mean<MAX_DIST else MAX_DIST
-
-                # Compute metric
-                metric = 1 - d_mean/MAX_DIST
-#                metric *= metric  # square of the distance
-
-                # Data is too spread
-                if not STD_RANGE_A[0]<a_std<STD_RANGE_A[1] or not STD_RANGE_B[0]<b_std<STD_RANGE_B[1]:
-                    metric = 0
-                # Too much lightening
-                if not 10<l_mean<60:
-                    metric=0
-
-                metrics.append(metric)
-                print(metric, a_mean, b_mean, a_std, b_std)
-                #variance = img.stdev(roi=roi)
-
-
-                #print(mean) #"a_bins"
-                # Count the number of white pixels (ones) within the current cell
-                #ones_in_cell = hist.bins()[1] * self.cell_width * self.cell_height
-                #ones.append(ones_in_cell)
-                # print(f"Number of ones (white pixels) in cell ({row},{col}):", ones_in_cell)
+                metric = metrics[row*self.num_cols + col]
 
                 # Draw the number of ones in the corner of the cell
-                img.draw_string(roi[0], roi[1],"{:.1f}".format(metric) , color=(0,255,0))  #
+#                img.draw_string(roi[0], roi[1],str(int(metric*10)) , color=(0,255,0))  #
 
                 # Draw the ROI on the image
-                img.draw_rectangle(roi, color=(int(metric*2*255)), thickness=1)
-        return metrics
+                img.draw_rectangle(roi, color=(int(metric*255),int(metric*255),int(metric*255)), thickness=1)
 
     def normalize(self, ones):
         totalones = max(sum(ones), 1)
@@ -294,121 +344,113 @@ class GridDetector:
         down_cells = sum([self.count_row(metric, N_ROWS-i-1) for i in range(N_ROWS//2) ])
 
 
-#        maxim = 0
-#        max_id = -1
-#        # Find the index of the maximum value
-#        for i in range(self.num_rows):
-#            for j in range(self.num_cols):
-#                m = metric[i+j*self.num_cols]
-#                if m>maxim:
-#                    m=maxim
-
-
         ux, uy = 0,0
 
         # Control action
         # print(left_cells, right_cells, up_cells, down_cells)
-        ux = int((right_cells - left_cells) * img.width()) // 3
-        uy = -int((up_cells - down_cells) * img.height()) // 3
+        ux = int((right_cells - left_cells) * img.width()) // N_COLS
+        uy = -int((up_cells - down_cells) * img.height()) // N_ROWS
 
         return ux, uy
 
 
+    def weighted_average(self, metrics):
+        cell_row = self.num_rows/2.0 - 0.5
+        cell_col = self.num_cols/2.0 - 0.5
 
+        sum_score = sum(metrics)
+        if sum_score > 0:
+            led_blue.on()
+            led_red.on()
+            cell_row = 0.0
+            cell_col = 0.0
+            for row in range(self.num_rows):
+                for col in range(self.num_cols):
+                    index = row*self.num_cols + col
+                    cell_row += (metrics[index] * row)
+                    cell_col += (metrics[index] * col)
 
-
-
+            cell_row /= sum_score
+            cell_col /= sum_score
+        else:
+            led_blue.off()
+            led_red.off()
+        return cell_row + 0.5, cell_col + 0.5, sum_score
 
 
 print("Start")
 
-N_ROWS = 4
-N_COLS = 5
+N_ROWS = 8
+N_COLS = 12
+FILTER = True
+
+
+
+
 if __name__ == "__main__":
+    # uart settings
+    uart = UART("LP1", 115200, timeout_char=2000) # (TX, RX) = (P1, P0) = (PB14, PB15)
+
+    # LED indicator
+    led_red = LED(1)
+    led_green = LED(2)
+    led_blue = LED(3)
 
     clock = time.clock()
     img = sensor.snapshot()
-    detector = GridDetector(N_ROWS, N_COLS, img.width(), img.height())
+    grid = Grid(N_ROWS, N_COLS, img.width(), img.height())
 
-    # Initialize UART
-#    uart = UART("LP1", 115200, timeout_char=2000)  # (TX, RX) = (P1, P0) = (PB14, PB15)
+
+    # Color distance
+    purpleDet = ColorDetector("Purple", line_ref = ((4, -8), (18, -33)), max_dist=4, std_range=(3, 30))
+    greenDet = ColorDetector("Green", line_ref=[[-26, 16], [-26, 22]], max_dist=13, std_range=(3, 30))
+
+    detectors = [purpleDet, greenDet]
 
     while True:
         clock.tick()
 
         img = sensor.snapshot()
-        # Load the image from flash memory
-#        img_from_flash = image.Image("bw.jpg")  # Load the image using its filename
-        #mutable_img = img_from_flash.copy()
 
-#        sensor.snapshot().copy(mutable_img)
-#        mutable_img.get_histogram()
-
-        metric_grid = detector.count(img)
+        # Detect
+        grid.count(img, detectors)
+        detector = detectors[0]
+        metric_grid = detector.metric
 
 
+        if FILTER:
+           metric_grid = detector.update_filter()
 
 
-#        nones = detector.normalize(ones)
-#        mean, variance = detector.statistics(nones)
-
-
-#        metric = variance
-
-#        if metric < old_metric:
-#            cb -= action
-
-#        old_metric = metric
-
-
-#        if sum(ones) > 50:
-#            nfc = 0
-#            print(cb, metric, action, sum(ones), int(clock.fps()))
-#        else:
-#            nfc += 1
-#            if nfc == 10:
-#                cb = random.choice(CB_ALTERNATIVES)
-#                print("reset", cb)
-#                nfc = 0
-#                old_metric = -1000
-
-
-        ux, uy = detector.action(metric_grid)
+        grid.plot_metric(metric_grid)
+        total_score = max(metric_grid)
+        ux, uy = grid.action(metric_grid)
 
         x0 = img.width() // 2
         y0 = img.height() // 2
-        img.draw_arrow(x0, y0, x0 + ux, y0 + uy, color=(0, 255, 0), size=30, thickness=2)
+        x1 = x0 + ux
+        y1 = y0 + uy
+#        img.draw_circle(x1, y1, 1, color=(255, 0, 0), thickness=2)
+#        img.draw_circle(x1, y1, int(total_score*img.height()/4), color=(255, 0, 0), thickness=2)
 
-        print((clock.fps()))
+        print("fps:\t", clock.fps(), end='\t')
 
-#        # Create message for ESP32
-#        flag = 0b10000000
-#        x_roi,y_roi = ux, uy
-#        w_roi, h_roi = 10,10
-#        x_value,y_value = ux, uy
-#        w_value = 10
-#        h_value = 10
-#        dis = 9999  # Time of flight sensor fixme
+        # Create message for ESP32
+        flag = 0b10000000
+        x_roi,y_roi = x1, y1
+        w_roi, h_roi = 10, 10
+        x_value,y_value = x1, y1
 
-#        msg = IBus_message([flag, x_roi, y_roi, w_roi, h_roi,
-#                            x_value, y_value, w_value, h_value, dis])
+        print("x, y =", x_roi, y_roi,"\t metric=", metric_grid[5*N_ROWS:6*N_ROWS])
+        msg = IBus_message([flag, x_roi, y_roi, w_roi, h_roi,
+                            x_value, y_value, img.width()//N_COLS, img.height()//N_ROWS,
+                            int(total_score*10)])
 
+
+        # Receive message
+        if uart.any():
+            uart_input = uart.read()
+            print(uart_input)
 
         # Send message
-#        uart.write(msg)
-
-#        print(clock.fps(), detector.num_rows)
-        # Receive message
-        # if uart.any():
-        #     uart_input = uart.read()
-        #     print(uart_input)
-        #     if uart_input == b'\x80' and mode == 1:
-        #         ISCOLORED = True
-        #         res = mode_initialization(0, mode, ISCOLORED)
-        #         if res:
-        #             mode, tracker = res
-        #     elif uart_input == b'\x81' and mode == 0:
-        #         ISCOLORED = False
-        #         res = mode_initialization(1, mode, ISCOLORED)
-        #         if res:
-        #             mode, tracker = res
+        uart.write(msg)
