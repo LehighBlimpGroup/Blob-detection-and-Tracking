@@ -16,6 +16,7 @@ def blob_tracking(thresholds, clock, blob_type=1, isColored=True):
     if blob_type == 1:
         blob_tracker = BLOBTracker(thresholds, clock)
     elif blob_type == 2:
+        print("f5")
         blob_tracker = GoalTracker(thresholds, clock, sensor_sleep_time=WAIT_TIME_US)
     else:
         raise ValueError("Invalid blob type!")
@@ -222,7 +223,7 @@ if __name__ == "__main__":
 
     clock = time.clock()
     ISCOLORED = True
-    mode = 0
+    mode = 1
 
     # Initialize inter-board communication
     # ibus = IBus()
@@ -234,6 +235,7 @@ if __name__ == "__main__":
     uart = UART("LP1", 115200, timeout_char=2000) # (TX, RX) = (P1, P0) = (PB14, PB15)
 
     while True:
+        #print("w")
         feature_vector, flag = tracker.track()
         try: dis = tof.read()
         except: dis = 9999

@@ -8,6 +8,8 @@
 # number of thresholds to segment the image by.
 
 import array
+
+
 import sensor, image
 import time
 import math
@@ -26,8 +28,8 @@ from pyb import LED
 #                       framesize=sensor.HQVGA, windowsize=None) -> None:
 
 
-
-R_GAIN, G_GAIN, B_GAIN = 64, 69, 91
+PRINT_CORNER = True
+R_GAIN, G_GAIN, B_GAIN = 64, 64, 98
 
 
 # We do these whatever mode we are in
@@ -156,7 +158,6 @@ class LogOddFilter:
 
         return self.L
 
-
     def probabilities(self):
         for i, l in enumerate(self.L):
                 self.P[i] = 1. / (1. + math.exp(-l))
@@ -196,13 +197,18 @@ def IBus_message(message_arr_to_send):
     return msg
 
 
-class ColorDistance:
+class ColorDetector:
+
+
     def __init__(self, color_id, line_ref, max_dist, std_range):
         self.color_id = color_id
         self.line_ref = line_ref
         self.max_dist = max_dist
         self.std_range = std_range
 
+        self.filter = LogOddFilter(N_ROWS * N_COLS)
+
+        self.metric = [0. for _ in range(N_COLS*N_ROWS)]
 
     def distance(self, point, std):
         (l, a, b) = point
@@ -213,25 +219,23 @@ class ColorDistance:
 
         # Distnace is 1 if close to the line, and 0 if outside the line
         d = 1 - d / self.max_dist
-#                metric *= metric  # square of the distance
 
-        # Data is too spread
-#                if not STD_RANGE_A[0]<a_std<STD_RANGE_A[1] or not STD_RANGE_B[0]<b_std<STD_RANGE_B[1]:
-#                    metric = 0
-
-        # Check if the standar deviation is not in range
-#        for s in std:
-#            if not self.std_range[0] <= s <= self.std_range[1]:
-#                d = 0
-#                break
-
-#        # Too much lightening
+        # Too much lightening
         if not 10 < l < 60:  #fixme magic numbers
             d = 0.0
 
         return d
 
 
+    def update_cell(self, row, col, point, std):
+        d = self.distance(point, std)
+        self.metric[row * N_COLS + col] = d
+        return d
+
+
+    def update_filter(self):
+        self.filter.update(self.metric)
+        return self.filter.probabilities()
 
     def distance_point_to_segment(self, point, segment):
         x1, y1 = segment[0]
@@ -261,15 +265,14 @@ def _normal_dist(mu=0, sigma=1):
     u2 = random.uniform(0, 1)
     return mu + sigma*math.sqrt(-2.0 * math.log(u1)) * math.cos(2 * math.pi * u2)
 
-class GridDetector:
+class Grid:
     def __init__(self, num_rows, num_cols, img_width, img_height):
         self.num_rows = num_rows
         self.num_cols = num_cols
         self.cell_width = int(img_width / num_cols)
         self.cell_height = int(img_height / num_rows)
 
-    def count(self, img, distancer):
-        metrics = []
+    def count(self, img, detectors):
         # Loop through each cell of the grid
         for row in range(self.num_rows):
             for col in range(self.num_cols):
@@ -280,16 +283,17 @@ class GridDetector:
                 # Calculate the mean and variance of the ROI
                 s = img_roi.get_statistics()
 
-                # metric is the distance
-                d_mean = distancer.distance((s.l_mean(), s.a_mean(), s.b_mean()),
-                                            (s.l_stdev(), s.a_stdev(), s.b_stdev()))
+                for detector in detectors:
+                    d_mean = detector.update_cell(row, col, (s.l_mean(), s.a_mean(), s.b_mean()),
+                                                (s.l_stdev(), s.a_stdev(), s.b_stdev()))
 
-                if row==0:
-                    print ((s.a_mean(), s.b_mean(), d_mean), end=', ')
+                if PRINT_CORNER and row<3 and col<3:
+                    print((s.a_mean(), s.b_mean()), end=', ')
 
-                metrics.append(d_mean)
+            if PRINT_CORNER:
+                print()
 
-        return metrics
+
 
     def plot_metric(self, metrics):
 
@@ -298,9 +302,6 @@ class GridDetector:
                 roi = (col * self.cell_width, row * self.cell_height, self.cell_width, self.cell_height)
 
                 metric = metrics[row*self.num_cols + col]
-
-#                if row!=5:
-#                    continue
 
                 # Draw the number of ones in the corner of the cell
 #                img.draw_string(roi[0], roi[1],str(int(metric*10)) , color=(0,255,0))  #
@@ -397,11 +398,14 @@ if __name__ == "__main__":
 
     clock = time.clock()
     img = sensor.snapshot()
-    detector = GridDetector(N_ROWS, N_COLS, img.width(), img.height())
-    filter = LogOddFilter(N_ROWS * N_COLS)
+    grid = Grid(N_ROWS, N_COLS, img.width(), img.height())
+
 
     # Color distance
-    cdist = ColorDistance("Purple", line_ref = ((4, -8), (18, -33)), max_dist=4, std_range=(5,30))
+    purpleDet = ColorDetector("Purple", line_ref = ((4, -8), (18, -33)), max_dist=4, std_range=(3, 30))
+    greenDet = ColorDetector("Green", line_ref=[[-26, 16], [-26, 22]], max_dist=13, std_range=(3, 30))
+
+    detectors = [purpleDet, greenDet]
 
     while True:
         clock.tick()
@@ -409,16 +413,18 @@ if __name__ == "__main__":
         img = sensor.snapshot()
 
         # Detect
-        metric_grid = detector.count(img, cdist)
+        grid.count(img, detectors)
+        detector = detectors[0]
+        metric_grid = detector.metric
 
 
         if FILTER:
-            filter.update(metric_grid)
-            metric_grid = filter.probabilities()
+           metric_grid = detector.update_filter()
 
-        detector.plot_metric(metric_grid)
+
+        grid.plot_metric(metric_grid)
         total_score = max(metric_grid)
-        ux, uy = detector.action(metric_grid)
+        ux, uy = grid.action(metric_grid)
 
         x0 = img.width() // 2
         y0 = img.height() // 2

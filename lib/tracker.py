@@ -27,6 +27,7 @@ class Tracker:
         dynamic_threshold: bool = False,
         threshold_update_rate: int = 0,
     ) -> None:
+        print("inift")
         """
         @description: Constructor of the Tracker class
         @param       {*} self:
@@ -359,6 +360,7 @@ class GoalTracker(Tracker):
         @param       {int} sensor_sleep_time: The time to sleep after the sensor captures a new image (default: 50000)
         @return      {*}
         """
+        print("init")
         super().__init__(
             thresholds,
             clock,
@@ -378,6 +380,7 @@ class GoalTracker(Tracker):
         blob, _ = self.find_reference()
         self.tracked_blob = CurBLOB(blob)
 
+
     def track(self, edge_removal: bool = True) -> tuple:
         """
         @description: Track the blob with dynamic threshold and ROI
@@ -393,7 +396,7 @@ class GoalTracker(Tracker):
         # [1] : 1 if green OR BW, 0 if orange
         # [0] : 1 if goal, 0 if balloon
         flag = 0x81
-
+        print("t")
         self.update_leds(tracking=True, detecting=True, lost=False)  # Set the LEDs to indicate tracking
         # Initialize the blob with the max blob in view if it is not initialized
         if not self.tracked_blob.blob_history:
@@ -568,7 +571,7 @@ class GoalTracker(Tracker):
             margin=5,
             x_stride=1,
             y_stride=1,
-            merge=True,
+            merge=False,
 
         )
 
