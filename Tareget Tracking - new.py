@@ -87,8 +87,8 @@ def init_sensor_target(tracking_type:int=0, isColored:bool=True,
             sensor.__write_reg(0x04, 0b11000000) # low bits of exposure control
             sensor.__write_reg(0xb0, 0b01100000) # global gain
         elif True:# used for on off on #small blue on camera
-            sensor.__write_reg(0x03, 0b00000100) # high bits of exposure control
-            sensor.__write_reg(0x04, 0b00110000) # low bits of exposure control
+            sensor.__write_reg(0x03, 0b0000000) # high bits of exposure control
+            sensor.__write_reg(0x04, 0b10110000) # low bits of exposure control
             sensor.__write_reg(0xb0, 0b01110000) # global gain
 
         elif False:# used for on off on in highbay during day?
@@ -216,7 +216,7 @@ if __name__ == "__main__":
 
     GRAY = [(0, 200)]
     ORANGE_TARGET = [(55, 100, -12, 13, 27, 54)]
-    TARGET_COLOR = [(57, 100, -52, -10, 46, 100)]#[(54, 100, -56, -5, 11, 70), (0, 100, -78, -19, 23, 61)]#[(49, 97, -45, -6, -16, 60),(39, 56, -12, 15, 48, 63), (39, 61, -19, 1, 45, 64), (20, 61, -34, 57, -25, 57)] # orange, green
+    TARGET_COLOR = [(57, 100, -52, 0, 10, 100)]#[(54, 100, -56, -5, 11, 70), (0, 100, -78, -19, 23, 61)]#[(49, 97, -45, -6, -16, 60),(39, 56, -12, 15, 48, 63), (39, 61, -19, 1, 45, 64), (20, 61, -34, 57, -25, 57)] # orange, green
     THRESHOLD_UPDATE_RATE = 0.0
     WAIT_TIME_US = 1000000//frame_rate
     ### End Macros

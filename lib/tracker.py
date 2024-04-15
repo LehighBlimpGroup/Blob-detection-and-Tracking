@@ -36,14 +36,14 @@ class ShapeDetector:
         # Draw an isosceles triangle
         img.draw_line(gridsize // 2, gridsize - 1, 0, 0, color=255, thickness=1)
         img.draw_line(gridsize // 2, gridsize - 1, gridsize - 1, 0, color=255, thickness=1)
-        img.draw_line(0, 0, gridsize - 1, 0, color=255, thickness=1)
+        img.draw_line(0, 0, gridsize - 1, 0, color=255, thickness=2)
         return img
 
     def create_circle(self, gridsize):
         # Allocate frame buffer for circle
         img = sensor.alloc_extra_fb(gridsize, gridsize, sensor.BINARY)
         radius = (gridsize)// 2
-        img.draw_circle(gridsize // 2, gridsize // 2, radius, color=255, fill=False)
+        img.draw_circle(gridsize // 2, gridsize // 2, radius, color=255, fill=False, thickness=2)
         if (gridsize % 2 == 0):
             img.draw_circle((gridsize) // 2 -1, (gridsize) // 2 -1, radius, color=255, fill=False)
             img.draw_circle((gridsize) // 2 , (gridsize) // 2 -1, radius, color=255, fill=False)
@@ -54,7 +54,7 @@ class ShapeDetector:
         # Allocate frame buffer for square
         img = sensor.alloc_extra_fb(gridsize, gridsize, sensor.BINARY)
         # Draw a square
-        img.draw_rectangle(0, 0, gridsize, gridsize, color=255, fill=False)
+        img.draw_rectangle(0, 0, gridsize, gridsize, color=255, fill=False, thickness=1)
         return img
 
     def downsample_and_average(self, roi_img):
@@ -87,32 +87,37 @@ class ShapeDetector:
 
         return self.binary_image
 
-
     def detect_shape(self, roi_img):
         mean_pooled_img = self.downsample_and_average(roi_img.to_grayscale())
-        # Compare with each shape
-        temp_image = mean_pooled_img.copy()
-        temp_image.sub(self.img_triangle)
-        triangle_sum = sum(temp_image.get_pixel(j, i) for i in range(self.gridsize) for j in range(self.gridsize))#/self.tot_tri
-        temp_image = mean_pooled_img.copy()
-        temp_image.sub(self.img_circle)
-        circle_sum = sum(temp_image.get_pixel(j, i) for i in range(self.gridsize) for j in range(self.gridsize))#/self.tot_cir
-        temp_image = mean_pooled_img.copy()
-        temp_image.sub(self.img_square)
-        square_sum = sum(temp_image.get_pixel(j, i) for i in range(self.gridsize) for j in range(self.gridsize))# /self.tot_squ
+
         center_size = 3 if self.gridsize > 3 else 1  # Only 3x3 or 1x1, adjust if needed
         start = (self.gridsize - center_size) // 2
         end = start + center_size
         center_sum = sum(mean_pooled_img.get_pixel(j, i) for i in range(start, end) for j in range(start, end))
-        if (center_sum >= center_size**2 * .67):
+        if (center_sum >= center_size**2 * .66):
             return "not"
+        # Prepare for shape comparison
+        overlap_triangle = 0
+        overlap_circle = 0
+        overlap_square = 0
 
+        # Calculate overlaps by comparing each pixel
+        for i in range(self.gridsize):
+            for j in range(self.gridsize):
+                if mean_pooled_img.get_pixel(j, i) == 1:  # Check if the ROI pixel is white
+                    if self.img_triangle.get_pixel(j, i) == 1:
+                        overlap_triangle += 1
+                    if self.img_circle.get_pixel(j, i) == 1:
+                        overlap_circle += 1
+                    if self.img_square.get_pixel(j, i) == 1:
+                        overlap_square += 1
 
-        print(triangle_sum, circle_sum, square_sum)
-        # Identify which shape it is
-        if triangle_sum < circle_sum  and triangle_sum < square_sum:
+        print("Overlap Triangle:", overlap_triangle, "Overlap Circle:", overlap_circle, "Overlap Square:", overlap_square)
+
+        # Identify which shape it is based on maximum overlap
+        if overlap_triangle > overlap_circle and overlap_triangle > overlap_square:
             return "triangle"
-        elif square_sum < circle_sum :
+        elif overlap_square > overlap_circle:
             return "square"
         else:
             return "circle"
@@ -489,7 +494,7 @@ class GoalTracker(Tracker):
             threshold_update_rate,
         )
         self.shape_detector = ShapeDetector(gridsize=9)
-        self.LED_STATE = True
+        self.LED_STATE = False
         self.time_last_snapshot = time.time_ns()  # wait for the sensor to capture a new image
         self.extra_fb = sensor.alloc_extra_fb(sensor.width(), sensor.height(), sensor.RGB565)
         self.extra_fb2 = sensor.alloc_extra_fb(sensor.width(), sensor.height(), sensor.RGB565)
@@ -631,17 +636,22 @@ class GoalTracker(Tracker):
         # Get an extra frame buffer and take a snapshot
         self.clock.tick()
         ##################################################################
-        self.LED_STATE = True
+#        self.LED_STATE = True
 #        if self.tracked_blob is not None:
 #            if self.tracked_blob.untracked_frames > 3:
 #                self.LED_STATE = not self.LED_STATE
+#            elif self.tracked_blob.blob_history is None:
+#                self.LED_STATE = not self.LED_STATE
+
+#        else:
+#            self.LED_STATE = not self.LED_STATE
 #        print("no")
 #        self.sensor_sleep(self.time_last_snapshot)
         self.IR_LED.value(not self.LED_STATE)
         sensor.skip_frames(2)
         while(not sensor.get_frame_available()):
             pass
-#            time.sleep_us(1)
+#        time.sleep_us(20)
 
 #        self.time_last_snapshot = time.time_ns()   # wait for the sensor to capture a new image
 
@@ -652,9 +662,11 @@ class GoalTracker(Tracker):
 
         self.IR_LED.value(self.LED_STATE)
 #        self.sensor_sleep(self.time_last_snapshot)
+        sensor.skip_frames(1)
 
         while(not sensor.get_frame_available()):
             pass
+#        time.sleep_us(20)
 #            time.sleep_us(1)
 #        time.sleep_us(int(self.sensor_sleep_time/2))
 
@@ -665,8 +677,10 @@ class GoalTracker(Tracker):
         ######################################################################
 #        self.sensor_sleep(self.time_last_snapshot)
 
+        sensor.skip_frames(1)
         while(not sensor.get_frame_available()):
             pass
+#        time.sleep_us(20)
 #            time.sleep_us(1)
 
         img = sensor.snapshot()
