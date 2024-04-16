@@ -18,19 +18,9 @@ import random
 from pyb import UART
 from pyb import LED
 
-#sensor.reset()
-#sensor.ioctl(sensor.IOCTL_SET_FOV_WIDE, True)
-#sensor.set_framesize(sensor.HQVGA)
-#sensor.set_pixformat(sensor.RGB565)
-#sensor.skip_frames(time=2000)
 
-#def init_sensor_target(tracking_type:int=0, isColored:bool=True,
-#                       framesize=sensor.HQVGA, windowsize=None) -> None:
-
-
-
-N_ROWS = 8
-N_COLS = 12
+N_ROWS = 10
+N_COLS = 15
 FILTER = True
 PRINT_CORNER = True
 COMBINE_GREEN_AND_PURPLE = True
@@ -44,7 +34,7 @@ sensor.reset()
 sensor.set_auto_whitebal(True)
 sensor.set_auto_exposure(True)
 sensor.set_pixformat(sensor.RGB565)
-sensor.ioctl(sensor.IOCTL_SET_FOV_WIDE, True)
+#sensor.ioctl(sensor.IOCTL_SET_FOV_WIDE, True)
 sensor.set_framesize(sensor.HQVGA)
 
 sensor.set_auto_whitebal(False)
@@ -417,12 +407,12 @@ if __name__ == "__main__":
 
 
     # Color distance
-    purpleDet = ColorDetector("Purple", line_ref = ((4, -8), (18, -33)), max_dist=4, std_range=(3, 30), rgb=(0,0,255))
-    greenDet = ColorDetector("Green", line_ref=[[-4, 2], [-18, 24]], max_dist=4, std_range=(3, 30), rgb=(0,255,0))
-    blueDet = ColorDetector("Blue", line_ref=[[-19, 17], [-33, 46]], max_dist=5, std_range=(3, 30), rgb=(0, 255, 0))
+    purpleDet = ColorDetector("Purple", line_ref = [[26, -40], [11, -20]], max_dist=8, std_range=(5, 30), rgb=(255,0,255))
+    greenDet = ColorDetector("Green", line_ref=[[-15, 13], [-19, 17]], max_dist=8, std_range=(5, 30), rgb=(0,255,0))
+    blueDet = ColorDetector("Blue", line_ref=[[20, -46], [1, -4]], max_dist=3, std_range=(5, 30), rgb=(0, 0, 255))
 
 
-    detectors = [purpleDet,greenDet]
+    detectors = [purpleDet, greenDet, blueDet]
 
     while True:
         clock.tick()
