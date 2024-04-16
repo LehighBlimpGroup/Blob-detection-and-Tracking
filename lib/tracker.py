@@ -32,12 +32,19 @@ class ShapeDetector:
 
     def create_triangle(self, gridsize):
         # Allocate frame buffer for triangle
+    #        img = sensor.alloc_extra_fb(gridsize, gridsize, sensor.BINARY)
+    #        # Draw an isosceles triangle
+    #        img.draw_line(gridsize // 2, gridsize - 1, 0, 0, color=255, thickness=1)
+    #        img.draw_line(gridsize // 2, gridsize - 1, gridsize - 1, 0, color=255, thickness=1)
+    #        img.draw_line(0, 0, gridsize - 1, 0, color=255, thickness=2)
         img = sensor.alloc_extra_fb(gridsize, gridsize, sensor.BINARY)
-        # Draw an isosceles triangle
-        img.draw_line(gridsize // 2, gridsize - 1, 0, 0, color=255, thickness=1)
-        img.draw_line(gridsize // 2, gridsize - 1, gridsize - 1, 0, color=255, thickness=1)
-        img.draw_line(0, 0, gridsize - 1, 0, color=255, thickness=2)
+        # Flipped isosceles triangle
+        img.draw_line(gridsize // 2, 0, 0, gridsize - 1, color=255, thickness=1)  # Apex to left base
+        img.draw_line(gridsize // 2, 0, gridsize - 1, gridsize - 1, color=255, thickness=1)  # Apex to right base
+        img.draw_line(0, gridsize - 1, gridsize - 1, gridsize - 1, color=255, thickness=2)  # Base line
+
         return img
+
 
     def create_circle(self, gridsize):
         # Allocate frame buffer for circle
@@ -112,7 +119,7 @@ class ShapeDetector:
                     if self.img_square.get_pixel(j, i) == 1:
                         overlap_square += 1
 
-        print("Overlap Triangle:", overlap_triangle, "Overlap Circle:", overlap_circle, "Overlap Square:", overlap_square)
+#        print("Overlap Triangle:", overlap_triangle, "Overlap Circle:", overlap_circle, "Overlap Square:", overlap_square)
 
         # Identify which shape it is based on maximum overlap
         if overlap_triangle > overlap_circle and overlap_triangle > overlap_square:
@@ -122,7 +129,7 @@ class ShapeDetector:
         else:
             return "circle"
 
-    def extract_valid_roi(self, img, blob, current_thresholds, min_edge_distance=4):
+    def extract_valid_roi(self, img, blob, current_thresholds, min_edge_distance=0):
         """ Extracts and validates the ROI from the given blob based on minimum distance to the edge """
         left_distance = blob.x()
         right_distance = img.width() - (blob.x() + blob.w())
@@ -130,12 +137,18 @@ class ShapeDetector:
         bottom_distance = img.height() - (blob.y() + blob.h())
         min_distance = min(left_distance, right_distance, top_distance, bottom_distance)
 
-        if min_distance > min_edge_distance:
-            roi_width = min(int(img.height() * 0.8), blob.w())
-            roi_height = min(int(img.height() * 0.8), blob.h())
+        if min_distance >= min_edge_distance:
+            roi_width = min(int(img.width() * 1), blob.w())
+            roi_height = min(int(img.height() * 1), blob.h())
             if roi_width // self.gridsize > 0 and roi_height // self.gridsize > 0:
                 roi = (max(0, blob.x()), max(0, blob.y()), roi_width, roi_height)
-                roi_img = img.copy(roi=roi).binary(current_thresholds)
+                x_scale = 1
+                y_scale = 1
+                if roi_width > img.width()/2:
+                    x_scale = .5
+                if roi_height > img.height()/2:
+                    y_scale = .5
+                roi_img = img.copy(x_scale = x_scale, y_scale = y_scale, roi=roi).binary(current_thresholds)
                 return roi_img, roi
 
         return None, None  # Return None if no valid ROI found
@@ -637,14 +650,14 @@ class GoalTracker(Tracker):
         self.clock.tick()
         ##################################################################
 #        self.LED_STATE = True
-#        if self.tracked_blob is not None:
-#            if self.tracked_blob.untracked_frames > 3:
-#                self.LED_STATE = not self.LED_STATE
-#            elif self.tracked_blob.blob_history is None:
-#                self.LED_STATE = not self.LED_STATE
+        if self.tracked_blob is not None:
+            if self.tracked_blob.untracked_frames > 3:
+                self.LED_STATE = not self.LED_STATE
+            elif self.tracked_blob.blob_history is None:
+                self.LED_STATE = not self.LED_STATE
 
-#        else:
-#            self.LED_STATE = not self.LED_STATE
+        else:
+            self.LED_STATE = not self.LED_STATE
 #        print("no")
 #        self.sensor_sleep(self.time_last_snapshot)
         self.IR_LED.value(not self.LED_STATE)
@@ -662,7 +675,7 @@ class GoalTracker(Tracker):
 
         self.IR_LED.value(self.LED_STATE)
 #        self.sensor_sleep(self.time_last_snapshot)
-        sensor.skip_frames(1)
+#        sensor.skip_frames(1)
 
         while(not sensor.get_frame_available()):
             pass
@@ -677,7 +690,7 @@ class GoalTracker(Tracker):
         ######################################################################
 #        self.sensor_sleep(self.time_last_snapshot)
 
-        sensor.skip_frames(1)
+#        sensor.skip_frames(1)
         while(not sensor.get_frame_available()):
             pass
 #        time.sleep_us(20)
@@ -762,8 +775,9 @@ class GoalTracker(Tracker):
                     if detected_shape != "triangle" and detected_shape != "not":
                         big_blobs.append(blob)
                     img.draw_string(blob.x(), blob.y(), detected_shape[0], color=(255, 0, 255))
-                else: # if shape cannot be determined add blob to anyway
-                    big_blobs.append(blob)
+#                else: # if shape cannot be determined add blob to anyway
+#                    big_blobs.append(blob)
+#                    img.draw_rectangle(blob.rect(), color=(255, 0, 0))  # Red rectangle around the blob for visibility
 #            img.draw_edges(blob.min_corners(), color=(255, 0, 0))
 #            img.draw_line(blob.major_axis_line(), color=(0, 255, 0))
 #            img.draw_line(blob.minor_axis_line(), color=(0, 0, 255))
