@@ -28,8 +28,15 @@ from pyb import LED
 #                       framesize=sensor.HQVGA, windowsize=None) -> None:
 
 
+
+N_ROWS = 8
+N_COLS = 12
+FILTER = True
 PRINT_CORNER = True
-R_GAIN, G_GAIN, B_GAIN = 64, 64, 98
+COMBINE_GREEN_AND_PURPLE = True
+SEPARATE_BLUE_AND_PURPLE = True
+
+R_GAIN, G_GAIN, B_GAIN = 64, 60, 98
 
 
 # We do these whatever mode we are in
@@ -200,15 +207,19 @@ def IBus_message(message_arr_to_send):
 class ColorDetector:
 
 
-    def __init__(self, color_id, line_ref, max_dist, std_range):
+    def __init__(self, color_id, line_ref, max_dist, std_range, rgb):
         self.color_id = color_id
         self.line_ref = line_ref
         self.max_dist = max_dist
         self.std_range = std_range
+        self.rgb = rgb
 
-        self.filter = LogOddFilter(N_ROWS * N_COLS)
 
         self.metric = [0. for _ in range(N_COLS*N_ROWS)]
+
+        # Filter
+        self.filter = LogOddFilter(N_ROWS * N_COLS)
+        self.P = [0. for _ in range(N_COLS*N_ROWS)]
 
     def distance(self, point, std):
         (l, a, b) = point
@@ -219,6 +230,12 @@ class ColorDetector:
 
         # Distnace is 1 if close to the line, and 0 if outside the line
         d = 1 - d / self.max_dist
+
+        # Check if standad deviation is in range
+        for s in std:
+            if not self.std_range[0]< s < self.std_range[1]:
+                d=0.0
+                break
 
         # Too much lightening
         if not 10 < l < 60:  #fixme magic numbers
@@ -232,10 +249,10 @@ class ColorDetector:
         self.metric[row * N_COLS + col] = d
         return d
 
-
     def update_filter(self):
         self.filter.update(self.metric)
-        return self.filter.probabilities()
+        self.P = self.filter.probabilities()
+        return self.P
 
     def distance_point_to_segment(self, point, segment):
         x1, y1 = segment[0]
@@ -295,7 +312,7 @@ class Grid:
 
 
 
-    def plot_metric(self, metrics):
+    def plot_metric(self, metrics, rgb):
 
         for row in range(self.num_rows):
             for col in range(self.num_cols):
@@ -306,8 +323,9 @@ class Grid:
                 # Draw the number of ones in the corner of the cell
 #                img.draw_string(roi[0], roi[1],str(int(metric*10)) , color=(0,255,0))  #
 
-                # Draw the ROI on the image
-                img.draw_rectangle(roi, color=(int(metric*255),int(metric*255),int(metric*255)), thickness=1)
+                if metric > 0.001 or (PRINT_CORNER and row<3 and col<3):
+                    # Draw the ROI on the image
+                    img.draw_rectangle(roi, color=(int(metric*rgb[0]),int(metric*rgb[1]),int(metric*rgb[2])), thickness=1)
 
     def normalize(self, ones):
         totalones = max(sum(ones), 1)
@@ -380,9 +398,6 @@ class Grid:
 
 print("Start")
 
-N_ROWS = 8
-N_COLS = 12
-FILTER = True
 
 
 
@@ -402,10 +417,12 @@ if __name__ == "__main__":
 
 
     # Color distance
-    purpleDet = ColorDetector("Purple", line_ref = ((4, -8), (18, -33)), max_dist=4, std_range=(3, 30))
-    greenDet = ColorDetector("Green", line_ref=[[-26, 16], [-26, 22]], max_dist=13, std_range=(3, 30))
+    purpleDet = ColorDetector("Purple", line_ref = ((4, -8), (18, -33)), max_dist=4, std_range=(3, 30), rgb=(0,0,255))
+    greenDet = ColorDetector("Green", line_ref=[[-4, 2], [-18, 24]], max_dist=4, std_range=(3, 30), rgb=(0,255,0))
+    blueDet = ColorDetector("Blue", line_ref=[[-19, 17], [-33, 46]], max_dist=5, std_range=(3, 30), rgb=(0, 255, 0))
 
-    detectors = [purpleDet, greenDet]
+
+    detectors = [purpleDet,greenDet]
 
     while True:
         clock.tick()
@@ -415,14 +432,26 @@ if __name__ == "__main__":
         # Detect
         grid.count(img, detectors)
         detector = detectors[0]
-        metric_grid = detector.metric
+
+        for detector in detectors:
+            metric_grid = detector.metric
 
 
-        if FILTER:
-           metric_grid = detector.update_filter()
+            if FILTER:
+               metric_grid = detector.update_filter()
 
 
-        grid.plot_metric(metric_grid)
+            grid.plot_metric(metric_grid, detector.rgb)
+
+
+        # Discard purple if blue has higher probability
+        if SEPARATE_BLUE_AND_PURPLE:
+            new_purple = [p if p>b else 0 for p,b in zip(purpleDet.P, blueDet.P)]
+
+        # Combine green and purple
+        if COMBINE_GREEN_AND_PURPLE:
+            metric_grid = [max(p,g) for p,g in zip(new_purple, greenDet.P)]
+
         total_score = max(metric_grid)
         ux, uy = grid.action(metric_grid)
 
