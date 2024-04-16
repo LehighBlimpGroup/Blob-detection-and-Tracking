@@ -8,8 +8,6 @@
 # number of thresholds to segment the image by.
 
 import array
-
-
 import sensor, image
 import time
 import math
@@ -18,23 +16,57 @@ import random
 from pyb import UART
 from pyb import LED
 
-
+# Grid setup
 N_ROWS = 10
 N_COLS = 15
+
+# Probablistic filter for detection
 FILTER = True
+
+# print the stats at the upper left corner
 PRINT_CORNER = True
+
+# whether combine detction of green and purple as target balloons
 COMBINE_GREEN_AND_PURPLE = True
+
+# whether remove blue color from purple color
 SEPARATE_BLUE_AND_PURPLE = True
 
+# manual white balance - to be used with *get_gains.py* in the repository
+# - see RGB gain readings in the console
 R_GAIN, G_GAIN, B_GAIN = 64, 60, 98
 
+# reference line segments for different colors of balloons
+COLOR_LINE_REF_PURPLE = [[26, -40], [11, -20]]
+COLOR_LINE_REF_GREEN = [[-15, 13], [-19, 17]]
+COLOR_LINE_REF_BLUE = [[20, -46], [1, -4]]
 
-# We do these whatever mode we are in
+# maximum distance from the stats of a grid to a line reference to be considered the color
+MAX_DIST_PURPLE = 8.0
+MAX_DIST_GREEN = 8.0
+MAX_DIST_BLUE = 3.0
+
+# allowed standard deviation range for a color detection
+# lower bound filters out uniform colors such as a light source
+# higher bound filters out messy background/environment
+STD_RANGE_PURPLE = [5, 30]
+STD_RANGE_GREEN = [5, 30]
+STD_RANGE_BLUE = [5, 30]
+
+# a semi-adaptive auto exposure for environment with high contrast
+BACKLIGHT_TOO_MUCH = False
+
+CAP_EXP_COUNTER = 100
+AES_EVERY = 50
+BRIGHTNESS_MULT = 1.6
+
+
+# sensor setup
 sensor.reset()
 sensor.set_auto_whitebal(True)
 sensor.set_auto_exposure(True)
 sensor.set_pixformat(sensor.RGB565)
-#sensor.ioctl(sensor.IOCTL_SET_FOV_WIDE, True)
+sensor.ioctl(sensor.IOCTL_SET_FOV_WIDE, True) # wide FOV
 sensor.set_framesize(sensor.HQVGA)
 
 sensor.set_auto_whitebal(False)
@@ -122,8 +154,6 @@ sensor.__write_reg(0xd1, 48)    # Cb saturation
 sensor.__write_reg(0xd2, 48)    # Cr saturation
 sensor.__write_reg(0xd3, 40)    # contrast
 sensor.__write_reg(0xd5, 0)     # luma offset
-
-
 
 
 
@@ -407,14 +437,39 @@ if __name__ == "__main__":
 
 
     # Color distance
-    purpleDet = ColorDetector("Purple", line_ref = [[26, -40], [11, -20]], max_dist=8, std_range=(5, 30), rgb=(255,0,255))
-    greenDet = ColorDetector("Green", line_ref=[[-15, 13], [-19, 17]], max_dist=8, std_range=(5, 30), rgb=(0,255,0))
-    blueDet = ColorDetector("Blue", line_ref=[[20, -46], [1, -4]], max_dist=3, std_range=(5, 30), rgb=(0, 0, 255))
+    purpleDet = ColorDetector("Purple", line_ref = COLOR_LINE_REF_PURPLE,
+                              max_dist=MAX_DIST_PURPLE, std_range=STD_RANGE_PURPLE,
+                              rgb=(255,0,255))
+    greenDet = ColorDetector("Green", line_ref=COLOR_LINE_REF_GREEN,
+                             max_dist=MAX_DIST_GREEN, std_range=STD_RANGE_GREEN,
+                             rgb=(0,255,0))
+    blueDet = ColorDetector("Blue", line_ref=COLOR_LINE_REF_BLUE,
+                            max_dist=MAX_DIST_BLUE, std_range=STD_RANGE_BLUE,
+                            rgb=(0, 0, 255))
 
+    # flag setup
+    flag = 0
 
     detectors = [purpleDet, greenDet, blueDet]
 
     while True:
+        if BACKLIGHT_TOO_MUCH:
+            if exp_counter == 1:
+                sensor.set_auto_exposure(True)
+                print("auto-adjusting exp")
+            elif exp_counter == CAP_EXP_COUNTER//AES_EVERY:
+                print("setting exp")
+                sensor.set_auto_exposure(False)
+                sensor.__write_reg(0xfe, 0b00000000)    # change to registers at page 0
+                high_exp = sensor.__read_reg(0x03)  # high bits of exposure control
+                low_exp = sensor.__read_reg(0x04)   # low bits of exposure control
+                exposure = int(((high_exp << 8) + low_exp) * BRIGHTNESS_MULT)
+                sensor.__write_reg(0x03, exposure >> 8) # force BRIGHTNESS_MULT x exposure time
+                sensor.__write_reg(0x04, exposure & 0xff) # force BRIGHTNESS_MULT x exposure time
+            elif exp_counter == CAP_EXP_COUNTER:
+                exp_counter = 0
+            exp_counter += 1
+
         clock.tick()
 
         img = sensor.snapshot()
@@ -455,15 +510,37 @@ if __name__ == "__main__":
         print("fps:\t", clock.fps(), end='\t')
 
         # Create message for ESP32
-        flag = 0b10000000
+        if total_score > 0.05:
+            if max(new_purple) > max(greenDet.P):
+                led_red.on()
+                led_blue.on()
+                led_green.off()
+            elif max(new_purple) < max(greenDet.P):
+                led_red.off()
+                led_blue.off()
+                led_green.on()
+            else:
+                led_red.on()
+                led_blue.on()
+                led_green.on()
+            if flag:
+                flag = 3 - flag
+            else:
+                flag = 1
+        else:
+            led_red.off()
+            led_blue.off()
+            led_green.off()
+            flag = 0
+
         x_roi,y_roi = x1, y1
         w_roi, h_roi = 10, 10
         x_value,y_value = x1, y1
 
-        print("x, y =", x_roi, y_roi,"\t metric=", metric_grid[5*N_ROWS:6*N_ROWS])
-        msg = IBus_message([flag, x_roi, y_roi, w_roi, h_roi,
+        print("x, y =", x_roi, y_roi, "flag: ", bin(flag|0x40), "\t metric=", metric_grid[5*N_ROWS:6*N_ROWS])
+        msg = IBus_message([flag | 0x40, x_roi, y_roi, w_roi, h_roi,
                             x_value, y_value, img.width()//N_COLS, img.height()//N_ROWS,
-                            int(total_score*10)])
+                            int(total_score*5)])
 
 
         # Receive message
