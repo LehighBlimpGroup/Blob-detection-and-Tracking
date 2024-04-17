@@ -1633,7 +1633,6 @@ if __name__ == "__main__":
                 exp_counter += 1
         if mode == 1:
             feature_vector, flag = tracker.track()
-            print(hex(flag))
         else:
             img = sensor.snapshot()
             feature_vector, flag = tracker.track(img)
