@@ -24,7 +24,7 @@ N_COLS = 15
 FILTER = True
 
 # print the stats at the upper left corner
-PRINT_CORNER = True
+PRINT_CORNER = False
 
 # whether combine detction of green and purple as target balloons
 COMBINE_GREEN_AND_PURPLE = True
@@ -34,7 +34,7 @@ SEPARATE_BLUE_AND_PURPLE = True
 
 # manual white balance - to be used with *get_gains.py* in the repository
 # - see RGB gain readings in the console
-R_GAIN, G_GAIN, B_GAIN = 64, 60, 98
+R_GAIN, G_GAIN, B_GAIN = 64, 63, 102
 
 # reference line segments for different colors of balloons
 COLOR_LINE_REF_PURPLE = [[26, -40], [11, -20]]
@@ -173,7 +173,7 @@ class LogOddFilter:
         print("Initial belief=", self.init_belif, "L for detection=", self.l_det, "L for not detection", self.l_ndet )
 
 
-    def update(self, measurements, l_max=10, l_min=-10):
+    def update(self, measurements, l_max=10, l_min=-8):
         for i, z in enumerate(measurements):
             # Detected or not detected
             li = self.l_det if z else self.l_ndet
@@ -371,7 +371,8 @@ class Grid:
         row_sum = sum([nones[i + self.num_cols * row] for i in range(self.num_cols)])
         return row_sum
 
-    def action(self, metric):
+    def action_differential(self, metric):
+
         totalm= sum(metric) if sum(metric)>0 else 1
         metric = [m / totalm for m in metric]
 
@@ -391,6 +392,50 @@ class Grid:
 
         return ux, uy
 
+    def _index_to_matrix(self, i):
+        row = i // self.num_cols
+        col = i % self.num_cols
+        return row, col
+
+    def _matrix_to_index(self, row, col):
+        index = row * self.num_cols + col
+        return index
+
+    def action(self, metric):
+        max_col = -1
+        max_row = -1
+        max_val = -1
+        for i, m in enumerate(metric):
+            row, col = self._index_to_matrix(i)
+
+            # Out of bounds
+            if row==0 or col==0 or row==self.num_rows-1 or col== self.num_cols-1:
+                continue
+
+            total=m
+            # Neighbors:
+            for k1 in range(3):
+                for k2 in range(3):
+                    r, c = row-1+k1, col-1+k2  # Row and column
+                    mk = self._matrix_to_index(r, c)
+                    total += metric[mk]
+
+            if total>max_val:
+                max_col = col
+                max_row = row
+                max_val = total
+
+
+
+
+        x, y = max_col * self.cell_width + self.cell_width// 2, max_row * self.cell_height + self.cell_height // 2
+        radius = int(30 * max_val/9)
+        # Draw the ROI on the image
+
+        img.draw_circle(x, y, radius, color=(255,0,0), thickness=4, fill=False)
+
+
+        return x, y, max_val
 
     def weighted_average(self, metrics):
         cell_row = self.num_rows/2.0 - 0.5
@@ -498,12 +543,10 @@ if __name__ == "__main__":
             metric_grid = [max(p,g) for p,g in zip(new_purple, greenDet.P)]
 
         total_score = max(metric_grid)
-        ux, uy = grid.action(metric_grid)
+        ux, uy, val = grid.action(metric_grid)
 
-        x0 = img.width() // 2
-        y0 = img.height() // 2
-        x1 = x0 + ux
-        y1 = y0 + uy
+        x1 = ux
+        y1 = uy
 #        img.draw_circle(x1, y1, 1, color=(255, 0, 0), thickness=2)
 #        img.draw_circle(x1, y1, int(total_score*img.height()/4), color=(255, 0, 0), thickness=2)
 
@@ -533,9 +576,9 @@ if __name__ == "__main__":
             led_green.off()
             flag = 0
 
-        x_roi,y_roi = x1, y1
-        w_roi, h_roi = 10, 10
-        x_value,y_value = x1, y1
+        x_roi, y_roi = x1, y1
+        w_roi, h_roi = val, val
+        x_value, y_value = x1, y1
 
         print("x, y =", x_roi, y_roi, "flag: ", bin(flag|0x40), "\t metric=", metric_grid[5*N_ROWS:6*N_ROWS])
         msg = IBus_message([flag | 0x40, x_roi, y_roi, w_roi, h_roi,
