@@ -577,7 +577,7 @@ if __name__ == "__main__":
             flag = 0
 
         x_roi, y_roi = x1, y1
-        w_roi, h_roi = val, val
+        w_roi, h_roi = int(10.0*val), int(10.0*val)
         x_value, y_value = x1, y1
 
         print("x, y =", x_roi, y_roi, "flag: ", bin(flag|0x40), "\t metric=", metric_grid[5*N_ROWS:6*N_ROWS])
