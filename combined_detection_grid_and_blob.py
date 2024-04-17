@@ -550,6 +550,13 @@ class ShapeDetector:
         self.img_square = self.create_square(gridsize)
         self.tot_squ = sum(self.img_square.get_pixel(j, i) for i in range(self.gridsize) for j in range(self.gridsize))
 
+
+    def __del__(self):
+        sensor.dealloc_extra_fb()
+        sensor.dealloc_extra_fb()
+        sensor.dealloc_extra_fb()
+
+
     def create_triangle(self, gridsize):
         # Allocate frame buffer for triangle
     #        img = sensor.alloc_extra_fb(gridsize, gridsize, sensor.BINARY)
@@ -1051,8 +1058,15 @@ class GoalTracker(Tracker):
         self.tracked_blob = None
         blob, _ = self.find_reference()
         self.tracked_blob = CurBLOB(blob)
-
+        self.flag = 0x80
         self.sensor_sleep_time = sensor_sleep_time
+
+    def __del__(self):
+        sensor.dealloc_extra_fb()
+        sensor.dealloc_extra_fb()
+        sensor.dealloc_extra_fb()
+        self.shape_detector.__del__()
+
 
     def track(self, edge_removal: bool = True) -> tuple:
         """
@@ -1063,60 +1077,66 @@ class GoalTracker(Tracker):
         """
         # the 8-bit flag variable
         # From MSB to LSB
-        # [7]: 1 if tracked, 0 if not
-        # [6:3] : Reserved
-        # [2] : 1 if solid, 0 if hole
-        # [1] : 1 if green OR BW, 0 if orange
-        # [0] : 1 if goal, 0 if balloon
-        flag = 0x81
-
+        # [7]: 1 for goal
+        # [6]: reserved for balloons
+        # [5:2]: reserved
+        # [1:0]: toggling between 1 and 2 for new detections, 0 for no detection
         self.update_leds(tracking=True, detecting=True, lost=False)  # Set the LEDs to indicate tracking
+
         # Initialize the blob with the max blob in view if it is not initialized
         if not self.tracked_blob.blob_history:
+            self.flag = 0x80
             self.update_leds(tracking=False, detecting=False, lost=True)  # Set the LEDs to indicate tracking
             reference_blob, statistics = self.find_reference(time_show_us=0)  # Find the blob with the largest area
             if reference_blob:
                 self.tracked_blob.reinit(reference_blob)  # Initialize the tracked blob with the reference blob
-                median_lumen = statistics.median()
-                if median_lumen <= self.current_thresholds[0][1]:
-                    # solid!
-                    flag |= 0x04
+                # median_lumen = statistics.median()
+                # if median_lumen <= self.current_thresholds[0][1]:
+                #     # solid!
+                #     flag |= 0x04
                 self.update_thresholds(statistics)  # Update the dynamic threshold
                 self.roi.update(self.tracked_blob.feature_vector[0:4])  # Update the ROI
                 self.update_leds(tracking=True, detecting=True, lost=False)
-                color_id = self.tracked_blob.blob_history[-1].code()
-                if color_id & 0b1:
-                    # green
-                    flag |= 0b10
-                elif color_id & 0b10:
-                    # orange
-                    flag &= 0xfd
-                return self.tracked_blob.feature_vector, flag
+                # color_id = self.tracked_blob.blob_history[-1].code()
+                # if color_id & 0b1:
+                #     # green
+                #    flag |= 0b10
+                # elif color_id & 0b10:
+                #     # orange
+                #     flag &= 0xfd
+                self.flag |= 0x01
+                return self.tracked_blob.feature_vector, self.flag
             else:
-                return None, 0x80
-
+                return None, self.flag
 
         # Track the blob
         img, list_of_blobs = self.detect(isColored=True, edge_removal=edge_removal)
         blob_rect = self.tracked_blob.update(list_of_blobs)
 
         if self.tracked_blob.untracked_frames >= self.max_untracked_frames:
-            # If the blob fails to track for 15 frames, reset the tracking and find a new reference blob
+            # If the blob fails to track for self.max_untracked_frames frames,
+            # reset the tracking and find a new reference blob
             self.update_leds(tracking=False, detecting=False, lost=True)
             self.tracked_blob.reset()
             # self.roi.reset() (NOTE: ROI is not reset since we are assuming that the blob tends to appear in the same region when it is lost)
             print("Goal lost")
             self.update_thresholds(reset=True)
-            flag &= 0x7f
-            return None, flag
+            self.flag = 0x80
+            return None, self.flag
+        elif self.flag == 0x80:
+            self.flag = 0x81
+        else:
+            flag_toggling = self.flag & 0x03
+            flag_toggling = 3 - flag_toggling
+            self.flag = 0x80 | flag_toggling
         if blob_rect:
-            color_id = self.tracked_blob.blob_history[-1].code()
-            if color_id & 0b1:
-                # green
-                flag |= 0b10
-            elif color_id & 0b10:
-                # orange
-                flag &= 0xfd
+            # color_id = self.tracked_blob.blob_history[-1].code()
+            # if color_id & 0b1:
+            #     # green
+            #     flag |= 0b10
+            # elif color_id & 0b10:
+            #     # orange
+            #     flag &= 0xfd
             # If we discover the reference blob again
             self.roi.update(blob_rect)
             # We wnat to have a focus on the center of the blob
@@ -1126,12 +1146,10 @@ class GoalTracker(Tracker):
             shurnk_roi[2] //= 2
             shurnk_roi[3] //= 2
             statistics = img.get_statistics(roi=shurnk_roi)
-            median_lumen = statistics.median()
-
-            if median_lumen <= self.current_thresholds[0][1]:
-                # solid!
-                flag |= 0x04
-
+            # median_lumen = statistics.median()
+            # if median_lumen <= self.current_thresholds[0][1]:
+            #     # solid!
+            #     flag |= 0x04
             self.update_thresholds(statistics)
             self.update_leds(tracking=True, detecting=True, lost=False)
         else:
@@ -1144,7 +1162,7 @@ class GoalTracker(Tracker):
             img.draw_rectangle(x0, y0, w, h, color=(255, 0, 0))
             img.draw_rectangle(self.roi.get_roi(), color=(128, 128, 0))
             img.flush()
-        return self.tracked_blob.feature_vector, flag
+        return self.tracked_blob.feature_vector, self.flag
 
     def find_reference(
         self,
@@ -1559,7 +1577,7 @@ def mode_initialization(input_mode, mode, grid=None, detectors=None):
 if __name__ == "__main__":
     """ Necessary for both modes """
     clock = time.clock()
-    mode = 0 # 0 for balloon detection and 1 for goal
+    mode = 1 # 0 for balloon detection and 1 for goal
 
     # Initialize inter-board communication
     # time of flight sensor initialization
@@ -1589,9 +1607,9 @@ if __name__ == "__main__":
 
     # Initializing the tracker
     mode, tracker = mode_initialization(mode, -1, grid, detectors)
-#    mode, tracker = mode_initialization(0, -1, grid, detectors)
-#    mode, tracker = mode_initialization(1, -1, grid, detectors)
-    del(img)
+    del img
+    img = None
+
     # Initialize UART
     uart = UART("LP1", baudrate= 115200, timeout_char=50) # (TX, RX) = (P1, P0) = (PB14, PB15) = "LP1"
 
@@ -1615,32 +1633,37 @@ if __name__ == "__main__":
                 exp_counter += 1
         if mode == 1:
             feature_vector, flag = tracker.track()
+            print(hex(flag))
         else:
             img = sensor.snapshot()
             feature_vector, flag = tracker.track(img)
-        try: dis = tof.read()
+        try: dis = 9999
         except: dis = 9999
 
         if flag & 0b10000000:
-            roi = tracker.roi.get_roi()
-            feature_vec = tracker.tracked_blob.feature_vector
-            x_roi = roi[0] + roi[2]//2
-            y_roi = roi[1] + roi[3]//2
-            w_roi = roi[2]
-            h_roi = roi[3]
+            if flag & 0x03:
+                roi = tracker.roi.get_roi()
+                feature_vec = tracker.tracked_blob.feature_vector
+                x_roi = roi[0] + roi[2]//2
+                y_roi = roi[1] + roi[3]//2
+                w_roi = roi[2]
+                h_roi = roi[3]
 
-            x_value = int(feature_vec[0] + feature_vec[2]/2)
-            y_value = int(feature_vec[1] + feature_vec[3]/2)
-            w_value = int(feature_vec[2])
-            h_value = int(feature_vec[3])
-            msg = IBus_message([flag, x_roi, y_roi, w_roi, h_roi,
-                                x_value, y_value, w_value, h_value, dis])
+                x_value = int(feature_vec[0] + feature_vec[2]/2)
+                y_value = int(feature_vec[1] + feature_vec[3]/2)
+                w_value = int(feature_vec[2])
+                h_value = int(feature_vec[3])
+                msg = IBus_message([flag, x_roi, y_roi, w_roi, h_roi,
+                                    x_value, y_value, w_value, h_value, dis])
+            else:
+                msg = IBus_message([flag, 0, 0, 0, 0, 0, 0, 0, 0, dis])
         elif flag & 0b01000000:
             x_roi, y_roi, w_roi, h_roi, x_value, y_value, w_value, h_value, just_zero = feature_vector
             msg = IBus_message([flag, x_roi, y_roi, w_roi, h_roi,
                                 x_value, y_value, w_value, h_value, dis])
         else:
-            msg = IBus_message([flag, 0, 0, 0, 0, 0, 0, 0, 0, dis])
+            print("0 flag!")
+            assert(flag == 0)
 
 
         uart.write(msg)
@@ -1649,6 +1672,7 @@ if __name__ == "__main__":
             print(uart_input)
             print(mode)
             if uart_input == b'\x40' and mode == 1:
+                tracker.__del__()
                 res = mode_initialization(0, mode, grid, detectors)
                 if res:
                     mode, tracker = res
