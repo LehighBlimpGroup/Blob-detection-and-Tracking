@@ -69,7 +69,7 @@ FRAME_PARAMS = [0, 0, 240, 160] # Upper left corner x, y, width, height
 
 frame_rate = 80 # target framerate that is a lie
 ORANGE_TARGET = [(55, 100, -12, 13, 27, 54)]
-TARGET_COLOR = [(48, 100, -44, -14, 30, 61)]#[(54, 100, -56, -5, 11, 70), (0, 100, -78, -19, 23, 61)]#[(49, 97, -45, -6, -16, 60),(39, 56, -12, 15, 48, 63), (39, 61, -19, 1, 45, 64), (20, 61, -34, 57, -25, 57)] # orange, green
+TARGET_COLOR = [(0, 100, -32, 16, 7, 69)]#(48, 100, -44, -14, 30, 61)]#[(54, 100, -56, -5, 11, 70), (0, 100, -78, -19, 23, 61)]#[(49, 97, -45, -6, -16, 60),(39, 56, -12, 15, 48, 63), (39, 61, -19, 1, 45, 64), (20, 61, -34, 57, -25, 57)] # orange, green
 WAIT_TIME_US = 1000000//frame_rate
 
 SATURATION = 128 # global saturation for goal detection mode - not affected by ADVANCED_SENSOR_SETUP, defeult 64
@@ -664,11 +664,14 @@ class ShapeDetector:
                 roi = (max(0, blob.x()), max(0, blob.y()), roi_width, roi_height)
                 x_scale = 1
                 y_scale = 1
-                if roi_width > img.width()/2:
-                    x_scale = .5
-                if roi_height > img.height()/2:
-                    y_scale = .5
-                roi_img = img.copy(x_scale = x_scale, y_scale = y_scale, roi=roi).binary(current_thresholds)
+                if roi_width > img.width()/3:
+                    y_scale = 1- roi_height/img.height()
+                if roi_height > img.height()/3:
+                    y_scale = 1- roi_height/img.height()
+                try:
+                    roi_img = img.copy(x_scale = x_scale, y_scale = y_scale, roi=roi).binary(current_thresholds)
+                except:
+                    return None, None
                 return roi_img, roi
 
         return None, None  # Return None if no valid ROI found
@@ -1090,7 +1093,7 @@ class GoalTracker(Tracker):
                     flag &= 0xfd
                 return self.tracked_blob.feature_vector, flag
             else:
-                return None, 0x01
+                return None, 0x80
 
 
         # Track the blob
@@ -1181,7 +1184,7 @@ class GoalTracker(Tracker):
         ##################################################################
 #        self.LED_STATE = True
         if self.tracked_blob is not None:
-            if self.tracked_blob.untracked_frames > 3:
+            if self.tracked_blob.untracked_frames > 1:
                 self.LED_STATE = not self.LED_STATE
             elif self.tracked_blob.blob_history is None:
                 self.LED_STATE = not self.LED_STATE
@@ -1191,7 +1194,7 @@ class GoalTracker(Tracker):
 #        print("no")
 #        self.sensor_sleep(self.time_last_snapshot)
         self.IR_LED.value(not self.LED_STATE)
-        sensor.skip_frames(2)
+        sensor.skip_frames(1)
         while(not sensor.get_frame_available()):
             pass
 #        time.sleep_us(20)
@@ -1298,13 +1301,15 @@ class GoalTracker(Tracker):
         omv.disable_fb(False)
         big_blobs=[]
         for blob in list_of_blob:
-            if blob.area() > 20 and line_length(blob.minor_axis_line())> 5:
+            if blob.area() > 40 and line_length(blob.minor_axis_line())> 10:
                 roi_img, roi = self.shape_detector.extract_valid_roi(img, blob, self.current_thresholds)
                 if roi_img:
                     detected_shape = self.shape_detector.detect_shape(roi_img)
                     if detected_shape != "triangle" and detected_shape != "not":
                         big_blobs.append(blob)
                     img.draw_string(blob.x(), blob.y(), detected_shape[0], color=(255, 0, 255))
+                    img.draw_rectangle(blob.rect(), color=(255, 0, 255))
+                    del(roi_img)
 #                else: # if shape cannot be determined add blob to anyway
 #                    big_blobs.append(blob)
 #                    img.draw_rectangle(blob.rect(), color=(255, 0, 0))  # Red rectangle around the blob for visibility
@@ -1558,7 +1563,7 @@ if __name__ == "__main__":
 
     # Initialize inter-board communication
     # time of flight sensor initialization
-    tof = VL53L1X(I2C(2))
+#    tof = VL53L1X(I2C(2))
 
     """ Grid detection setup for balloons """
     sensor.reset()
@@ -1584,8 +1589,11 @@ if __name__ == "__main__":
 
     # Initializing the tracker
     mode, tracker = mode_initialization(mode, -1, grid, detectors)
+#    mode, tracker = mode_initialization(0, -1, grid, detectors)
+#    mode, tracker = mode_initialization(1, -1, grid, detectors)
+    del(img)
     # Initialize UART
-    uart = UART("LP1", 115200, timeout_char=2000) # (TX, RX) = (P1, P0) = (PB14, PB15)
+    uart = UART("LP1", baudrate= 115200, timeout_char=50) # (TX, RX) = (P1, P0) = (PB14, PB15) = "LP1"
 
     """ Main loop """
     while True:
@@ -1631,12 +1639,15 @@ if __name__ == "__main__":
             x_roi, y_roi, w_roi, h_roi, x_value, y_value, w_value, h_value, just_zero = feature_vector
             msg = IBus_message([flag, x_roi, y_roi, w_roi, h_roi,
                                 x_value, y_value, w_value, h_value, dis])
+        else:
+            msg = IBus_message([flag, 0, 0, 0, 0, 0, 0, 0, 0, dis])
 
 
         uart.write(msg)
         if uart.any():
-            uart_input = uart.read()
+            uart_input = uart.read();
             print(uart_input)
+            print(mode)
             if uart_input == b'\x40' and mode == 1:
                 res = mode_initialization(0, mode, grid, detectors)
                 if res:
