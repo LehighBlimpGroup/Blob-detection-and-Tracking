@@ -41,8 +41,19 @@ def init_sensor_target(tracking_type:int=0, isColored:bool=True,
 #    sensor.__write_reg(0x81, 0b01111100) # enable BLK dither mode, low light Y stretch, autogray enable
 #    sensor.__write_reg(0x82, 0b00000100) # enable anti blur, disable AWB
     sensor.ioctl(sensor.IOCTL_SET_FOV_WIDE, True)
+    sensor.__write_reg(0x80, 0b01111110)    # [7] reserved, [6] gamma enable, [5] CC enable,
     sensor.__write_reg(0x03, 0b00000010) # high bits of exposure control
     sensor.__write_reg(0x04, 0b11000000) # low bits of exposure control
+
+
+#    # color setup - saturation
+#    sensor.__write_reg(0xfe, 2)     # change to registers at page 2
+#    sensor.__write_reg(0xd0, 128)    # change global saturation,
+#    sensor.__write_reg(0xd1, 48)    # Cb saturation
+#    sensor.__write_reg(0xd2, 48)    # Cr saturation
+#    sensor.__write_reg(0xd3, 64)    # contrast
+#    sensor.__write_reg(0xd5, 0)     # luma offset
+
 #    sensor.__write_reg(0xb0, 0b01100000) # global gain
     sensor.set_pixformat(sensor.RGB565)
     sensor.set_framesize(framesize)
@@ -220,7 +231,7 @@ if __name__ == "__main__":
 
     GRAY = [(0, 200)]
     ORANGE_TARGET = [(55, 100, -12, 13, 27, 54)]
-    TARGET_COLOR = [(48, 100, -44, -14, 30, 61)]#[(54, 100, -56, -5, 11, 70), (0, 100, -78, -19, 23, 61)]#[(49, 97, -45, -6, -16, 60),(39, 56, -12, 15, 48, 63), (39, 61, -19, 1, 45, 64), (20, 61, -34, 57, -25, 57)] # orange, green
+    TARGET_COLOR = [(0, 100, -28, 10, 17, 62)]#[(48, 100, -44, -14, 30, 61)]#[(54, 100, -56, -5, 11, 70), (0, 100, -78, -19, 23, 61)]#[(49, 97, -45, -6, -16, 60),(39, 56, -12, 15, 48, 63), (39, 61, -19, 1, 45, 64), (20, 61, -34, 57, -25, 57)] # orange, green
     THRESHOLD_UPDATE_RATE = 0.0
     WAIT_TIME_US = 1000000//frame_rate
     ### End Macros
@@ -265,12 +276,12 @@ if __name__ == "__main__":
         if uart.any():
             uart_input = uart.read()
             print(uart_input)
-            if uart_input == b'\x80' and mode == 1:
+            if uart_input == b'\x40' and mode == 1:
                 ISCOLORED = True
                 res = mode_initialization(0, mode, ISCOLORED)
                 if res:
                     mode, tracker = res
-            elif uart_input == b'\x81' and mode == 0:
+            elif uart_input == b'\x80' and mode == 0:
                 ISCOLORED = False
                 res = mode_initialization(1, mode, ISCOLORED)
                 if res:

@@ -651,7 +651,7 @@ class GoalTracker(Tracker):
         ##################################################################
 #        self.LED_STATE = True
         if self.tracked_blob is not None:
-            if self.tracked_blob.untracked_frames > 3:
+            if self.tracked_blob.untracked_frames > 1:
                 self.LED_STATE = not self.LED_STATE
             elif self.tracked_blob.blob_history is None:
                 self.LED_STATE = not self.LED_STATE
@@ -661,7 +661,7 @@ class GoalTracker(Tracker):
 #        print("no")
 #        self.sensor_sleep(self.time_last_snapshot)
         self.IR_LED.value(not self.LED_STATE)
-        sensor.skip_frames(2)
+        sensor.skip_frames(1)
         while(not sensor.get_frame_available()):
             pass
 #        time.sleep_us(20)
