@@ -24,7 +24,7 @@ N_COLS = 15
 FILTER = True
 
 # print the stats at the upper left corner
-PRINT_CORNER = False
+PRINT_CORNER = True
 
 # whether combine detction of green and purple as target balloons
 COMBINE_GREEN_AND_PURPLE = True
@@ -34,7 +34,7 @@ SEPARATE_BLUE_AND_PURPLE = True
 
 # manual white balance - to be used with *get_gains.py* in the repository
 # - see RGB gain readings in the console
-R_GAIN, G_GAIN, B_GAIN = 64, 64, 80
+R_GAIN, G_GAIN, B_GAIN = 64, 64, 91
 
 # reference line segments for different colors of balloons
 COLOR_LINE_REF_PURPLE = [[26, -40], [11, -20]]
@@ -238,7 +238,7 @@ def IBus_message(message_arr_to_send):
 
 
 class ColorDetector:
-    def __init__(self, color_id, line_ref, max_dist, std_range, rgb, mahalanobis, mu=None, sigma_inv=None, decay = 5.):
+    def __init__(self, color_id, line_ref, max_dist, std_range, rgb, mahalanobis, mu=None, sigma_inv=None, decay = 4.):
 
         self.color_id = color_id
         self.line_ref = line_ref
