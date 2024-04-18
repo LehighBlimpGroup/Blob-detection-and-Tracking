@@ -34,7 +34,7 @@ SEPARATE_BLUE_AND_PURPLE = True
 
 # manual white balance - to be used with *get_gains.py* in the repository
 # - see RGB gain readings in the console
-R_GAIN, G_GAIN, B_GAIN = 64, 80, 138
+R_GAIN, G_GAIN, B_GAIN = 64, 64, 80
 
 # reference line segments for different colors of balloons
 COLOR_LINE_REF_PURPLE = [[26, -40], [11, -20]]
@@ -43,8 +43,8 @@ COLOR_LINE_REF_BLUE = [[20, -46], [1, -4]]
 
 
 # Color distribution
-COLOR_PURPLE_MEAN = [ 14.85185185, -32.2962963 ]
-COLOR_PURPLE_INV_COV = [[0.36527085581188184, 0.2904622446008661], [0.29046224460086617, 0.27376389388412165]]
+COLOR_PURPLE_MEAN = [14.35135135135135, -30.054054054054053]
+COLOR_PURPLE_INV_COV =  [[0.1489165613339765, 0.07975945458490068], [0.07975945458490068, 0.06203345185897681]]
 # maximum distance from the stats of a grid to a line reference to be considered the color
 MAX_DIST_PURPLE = 8.0
 MAX_DIST_GREEN = 8.0
@@ -179,11 +179,13 @@ class LogOddFilter:
 
     def update(self, measurements, l_max=10, l_min=-8):
         for i, z in enumerate(measurements):
-            if z==0:
+
+            if z < 0.1:
                 li = self.l_ndet
             else:
-                p_x = 0.6 + 0.399 * z
-                li = math.log(p_x/(1.-p_x))
+                # The probability of being detected goes from 0.5-1. Not being detected is smaller than 0.5
+                p_x = min(0.99, max(0.5 + z / 2, 0.001))
+                li = math.log(p_x / (1. - p_x))
                 #li = self.l_det
 
             # Detected or not detected
@@ -236,9 +238,7 @@ def IBus_message(message_arr_to_send):
 
 
 class ColorDetector:
-
-
-    def __init__(self, color_id, line_ref, max_dist, std_range, rgb, mahalanobis, mu, sigma_inv):
+    def __init__(self, color_id, line_ref, max_dist, std_range, rgb, mahalanobis, mu=None, sigma_inv=None, decay = 5.):
 
         self.color_id = color_id
         self.line_ref = line_ref
@@ -249,9 +249,10 @@ class ColorDetector:
         self.mahalanobis = mahalanobis
         self.mu = mu  # mu (list): Mean vector.
         self.sigma_inv = sigma_inv  # sigma_inv (list of lists): Inverse covariance matrix.
-
-
+        self.determinant = 1 / (sigma_inv[0][0] * sigma_inv[1][1] - sigma_inv[1][0] * sigma_inv[1][0])
+        print("det ",self.determinant)
         self.metric = [0. for _ in range(N_COLS*N_ROWS)]
+        self.decay = decay
 
         # Filter
         self.filter = LogOddFilter(N_ROWS * N_COLS)
@@ -261,13 +262,19 @@ class ColorDetector:
     def _distance(self, point, std):
         (l, a, b) = point
         if self.mahalanobis:
-            d = self._distance_mahalanobis((a, b))
-            print(d, end=", ")
-            # Clamp max distance
-            max_num_std = 5
-            d = d if d < max_num_std else max_num_std
+            d2 = self._distance_mahalanobis((a, b))
 
-            d = 1 - d / max_num_std
+            # Clamp max distance
+            # max_num_std = 5
+            # d = d if d < max_num_std else max_num_std
+
+            # d = 1 - d / max_num_std
+
+            # Compute the coefficient
+            coefficient = 4. #/ (2 * math.pi * math.sqrt(self.determinant))
+            # Compute the PDF value
+            d = coefficient * math.exp(-d2 / self.decay)
+            # print(d, end=", ")
         else:
             d = self._distance_point_to_segment((a, b), self.line_ref)
 
@@ -303,8 +310,8 @@ class ColorDetector:
 
         # Compute the Mahalanobis distance
         mahalanobis_sq = self._dot_product(diff, [self._dot_product(sigma_inv_row, diff) for sigma_inv_row in self.sigma_inv])
-        mahalanobis_dist = mahalanobis_sq ** 0.5
-        return mahalanobis_dist
+        # mahalanobis_dist = mahalanobis_sq ** 0.5
+        return mahalanobis_sq
 
     def _dot_product(self, a, b):
         """Compute the dot product of two vectors."""
@@ -354,6 +361,7 @@ class Grid:
     def count(self, img, detectors):
         # Loop through each cell of the grid
         for row in range(self.num_rows):
+
             for col in range(self.num_cols):
                 # Define the region of interest (ROI) for the current cell
                 roi = (col * self.cell_width, row * self.cell_height, self.cell_width, self.cell_height)
@@ -626,7 +634,7 @@ if __name__ == "__main__":
         w_roi, h_roi = int(10.0*val), int(10.0*val)
         x_value, y_value = x1, y1
 
-        print("x, y =", x_roi, y_roi, "flag: ", bin(flag|0x40), "\t metric=", metric_grid[5*N_ROWS:6*N_ROWS])
+        print("x, y =", x_roi, y_roi, "flag: ", bin(flag|0x40)) #, "\t metric=", metric_grid[5*N_ROWS:6*N_ROWS])
         msg = IBus_message([flag | 0x40, x_roi, y_roi, w_roi, h_roi,
                             x_value, y_value, img.width()//N_COLS, img.height()//N_ROWS,
                             int(total_score*5)])
