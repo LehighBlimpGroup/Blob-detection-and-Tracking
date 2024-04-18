@@ -1577,7 +1577,7 @@ def mode_initialization(input_mode, mode, grid=None, detectors=None):
 if __name__ == "__main__":
     """ Necessary for both modes """
     clock = time.clock()
-    mode = 1 # 0 for balloon detection and 1 for goal
+    mode = 0 # 0 for balloon detection and 1 for goal
 
     # Initialize inter-board communication
     # time of flight sensor initialization
@@ -1611,7 +1611,7 @@ if __name__ == "__main__":
     img = None
 
     # Initialize UART
-    uart = UART("LP1", baudrate= 115200, timeout_char=50) # (TX, RX) = (P1, P0) = (PB14, PB15) = "LP1"
+    uart = UART("LP1", baudrate= 115200, timeout_char=10) # (TX, RX) = (P1, P0) = (PB14, PB15) = "LP1"
 
     """ Main loop """
     while True:
@@ -1633,7 +1633,7 @@ if __name__ == "__main__":
                 exp_counter += 1
         if mode == 1:
             feature_vector, flag = tracker.track()
-            print(hex(flag))
+#            print(hex(flag))
         else:
             img = sensor.snapshot()
             feature_vector, flag = tracker.track(img)
@@ -1670,13 +1670,12 @@ if __name__ == "__main__":
         if uart.any():
             uart_input = uart.read();
             print(uart_input)
-            print(mode)
-            if uart_input == b'\x40' and mode == 1:
+            if uart_input[-1] == 0x40 and mode == 1:
                 tracker.__del__()
                 res = mode_initialization(0, mode, grid, detectors)
                 if res:
                     mode, tracker = res
-            elif uart_input == b'\x80' and mode == 0:
+            elif uart_input[-1] == 0x80 and mode == 0:
                 res = mode_initialization(1, mode)
                 if res:
                     mode, tracker = res
