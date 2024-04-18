@@ -247,13 +247,14 @@ class ColorDetector:
         self.rgb = rgb
         # Color distribution
         self.mahalanobis = mahalanobis
-        self.mu = mu  # mu (list): Mean vector.
-        self.sigma_inv = sigma_inv  # sigma_inv (list of lists): Inverse covariance matrix.
-        self.determinant = 1 / (sigma_inv[0][0] * sigma_inv[1][1] - sigma_inv[1][0] * sigma_inv[1][0])
-        print("det ",self.determinant)
-        self.metric = [0. for _ in range(N_COLS*N_ROWS)]
-        self.decay = decay
+        if mahalanobis:
+            self.mu = mu  # mu (list): Mean vector.
+            self.sigma_inv = sigma_inv  # sigma_inv (list of lists): Inverse covariance matrix.
+            self.determinant = 1 / (sigma_inv[0][0] * sigma_inv[1][1] - sigma_inv[1][0] * sigma_inv[1][0])
+            print("det ",self.determinant)
+            self.decay = decay
 
+        self.metric = [0. for _ in range(N_COLS*N_ROWS)]
         # Filter
         self.filter = LogOddFilter(N_ROWS * N_COLS)
         self.P = [0. for _ in range(N_COLS*N_ROWS)]
@@ -539,12 +540,12 @@ if __name__ == "__main__":
                               mu=COLOR_PURPLE_MEAN,
                               sigma_inv=COLOR_PURPLE_INV_COV
                               )
-#    greenDet = ColorDetector("Green", line_ref=COLOR_LINE_REF_GREEN,
-#                              max_dist=MAX_DIST_GREEN, std_range=STD_RANGE_GREEN,
-#                              rgb=(0,255,0), mahalanobis=False, mu=None, sigma_inv=None)
-#    blueDet = ColorDetector("Blue", line_ref=COLOR_LINE_REF_BLUE,
-#                             max_dist=MAX_DIST_BLUE, std_range=STD_RANGE_BLUE,
-#                             rgb=(0, 0, 255),mahalanobis=False, mu=None, sigma_inv=None)
+    greenDet = ColorDetector("Green", line_ref=COLOR_LINE_REF_GREEN,
+                             max_dist=MAX_DIST_GREEN, std_range=STD_RANGE_GREEN,
+                             rgb=(0,255,0), mahalanobis=False, mu=None, sigma_inv=None)
+    blueDet = ColorDetector("Blue", line_ref=COLOR_LINE_REF_BLUE,
+                            max_dist=MAX_DIST_BLUE, std_range=STD_RANGE_BLUE,
+                            rgb=(0, 0, 255),mahalanobis=False, mu=None, sigma_inv=None)
 
     # flag setup
     flag = 0
@@ -589,12 +590,12 @@ if __name__ == "__main__":
 
 
         # Discard purple if blue has higher probability
-#        if SEPARATE_BLUE_AND_PURPLE:
-#            new_purple = [p if p>b else 0 for p,b in zip(purpleDet.P, blueDet.P)]
+        if SEPARATE_BLUE_AND_PURPLE:
+            new_purple = [p if p>b else 0 for p,b in zip(purpleDet.P, blueDet.P)]
 
-#        # Combine green and purple
-#        if COMBINE_GREEN_AND_PURPLE:
-#            metric_grid = [max(p,g) for p,g in zip(new_purple, greenDet.P)]
+        # Combine green and purple
+        if COMBINE_GREEN_AND_PURPLE:
+            metric_grid = [max(p,g) for p,g in zip(new_purple, greenDet.P)]
 
         total_score = max(metric_grid)
         ux, uy, val = grid.action(metric_grid)
@@ -607,28 +608,28 @@ if __name__ == "__main__":
         print("fps:\t", clock.fps(), end='\t')
 
         # Create message for ESP32
-#        if total_score > 0.05:
-#            if max(new_purple) > max(greenDet.P):
-#                led_red.on()
-#                led_blue.on()
-#                led_green.off()
-#            elif max(new_purple) < max(greenDet.P):
-#                led_red.off()
-#                led_blue.off()
-#                led_green.on()
-#            else:
-#                led_red.on()
-#                led_blue.on()
-#                led_green.on()
-#            if flag:
-#                flag = 3 - flag
-#            else:
-#                flag = 1
-#        else:
-#            led_red.off()
-#            led_blue.off()
-#            led_green.off()
-#            flag = 0
+        if total_score > 0.05:
+           if max(new_purple) > max(greenDet.P):
+               led_red.on()
+               led_blue.on()
+               led_green.off()
+           elif max(new_purple) < max(greenDet.P):
+               led_red.off()
+               led_blue.off()
+               led_green.on()
+           else:
+               led_red.on()
+               led_blue.on()
+               led_green.on()
+           if flag:
+               flag = 3 - flag
+           else:
+               flag = 1
+        else:
+           led_red.off()
+           led_blue.off()
+           led_green.off()
+           flag = 0
 
         x_roi, y_roi = x1, y1
         w_roi, h_roi = int(10.0*val), int(10.0*val)
