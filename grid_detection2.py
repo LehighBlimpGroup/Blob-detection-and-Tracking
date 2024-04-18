@@ -34,13 +34,17 @@ SEPARATE_BLUE_AND_PURPLE = True
 
 # manual white balance - to be used with *get_gains.py* in the repository
 # - see RGB gain readings in the console
-R_GAIN, G_GAIN, B_GAIN = 64, 63, 102
+R_GAIN, G_GAIN, B_GAIN = 64, 80, 138
 
 # reference line segments for different colors of balloons
 COLOR_LINE_REF_PURPLE = [[26, -40], [11, -20]]
 COLOR_LINE_REF_GREEN = [[-15, 13], [-19, 17]]
 COLOR_LINE_REF_BLUE = [[20, -46], [1, -4]]
 
+
+# Color distribution
+COLOR_PURPLE_MEAN = [ 14.85185185, -32.2962963 ]
+COLOR_PURPLE_INV_COV = [[0.36527085581188184, 0.2904622446008661], [0.29046224460086617, 0.27376389388412165]]
 # maximum distance from the stats of a grid to a line reference to be considered the color
 MAX_DIST_PURPLE = 8.0
 MAX_DIST_GREEN = 8.0
@@ -175,8 +179,15 @@ class LogOddFilter:
 
     def update(self, measurements, l_max=10, l_min=-8):
         for i, z in enumerate(measurements):
+            if z==0:
+                li = self.l_ndet
+            else:
+                p_x = 0.6 + 0.399 * z
+                li = math.log(p_x/(1.-p_x))
+                #li = self.l_det
+
             # Detected or not detected
-            li = self.l_det if z else self.l_ndet
+            #li = self.l_det if z else self.l_ndet
             # Belief for li
             self.L[i]+= li -self.init_belif
             # Cap
@@ -227,12 +238,17 @@ def IBus_message(message_arr_to_send):
 class ColorDetector:
 
 
-    def __init__(self, color_id, line_ref, max_dist, std_range, rgb):
+    def __init__(self, color_id, line_ref, max_dist, std_range, rgb, mahalanobis, mu, sigma_inv):
+
         self.color_id = color_id
         self.line_ref = line_ref
         self.max_dist = max_dist
         self.std_range = std_range
         self.rgb = rgb
+        # Color distribution
+        self.mahalanobis = mahalanobis
+        self.mu = mu  # mu (list): Mean vector.
+        self.sigma_inv = sigma_inv  # sigma_inv (list of lists): Inverse covariance matrix.
 
 
         self.metric = [0. for _ in range(N_COLS*N_ROWS)]
@@ -241,21 +257,31 @@ class ColorDetector:
         self.filter = LogOddFilter(N_ROWS * N_COLS)
         self.P = [0. for _ in range(N_COLS*N_ROWS)]
 
-    def distance(self, point, std):
+
+    def _distance(self, point, std):
         (l, a, b) = point
-        d =  self.distance_point_to_segment((a,b), self.line_ref)
+        if self.mahalanobis:
+            d = self._distance_mahalanobis((a, b))
+            print(d, end=", ")
+            # Clamp max distance
+            max_num_std = 5
+            d = d if d < max_num_std else max_num_std
 
-        # Clamp max distance
-        d = d if d<self.max_dist else self.max_dist
+            d = 1 - d / max_num_std
+        else:
+            d = self._distance_point_to_segment((a, b), self.line_ref)
 
-        # Distnace is 1 if close to the line, and 0 if outside the line
-        d = 1 - d / self.max_dist
+            # Clamp max distance
+            d = d if d < self.max_dist else self.max_dist
 
-        # Check if standad deviation is in range
-        for s in std:
-            if not self.std_range[0]< s < self.std_range[1]:
-                d=0.0
-                break
+            # Distance is 1 if close to the line, and 0 if outside the line
+            d = 1 - d / self.max_dist
+
+        # Check if standard deviation is in range
+#        for s in std:
+#            if not self.std_range[0] < s < self.std_range[1]:
+#                d = 0.0
+#                break
 
         # Too much lightening
         if not 10 < l < 60:  #fixme magic numbers
@@ -264,8 +290,28 @@ class ColorDetector:
         return d
 
 
+    def _distance_mahalanobis(self, point):
+        """
+        Compute the Mahalanobis distance between a point and a distribution. It uses
+        Parameters:
+            point (list): Point vector.
+        Returns:
+            float: Mahalanobis distance.
+        """
+        # Calculate the difference between the point and the mean
+        diff = [x - y for x, y in zip(point, self.mu)]
+
+        # Compute the Mahalanobis distance
+        mahalanobis_sq = self._dot_product(diff, [self._dot_product(sigma_inv_row, diff) for sigma_inv_row in self.sigma_inv])
+        mahalanobis_dist = mahalanobis_sq ** 0.5
+        return mahalanobis_dist
+
+    def _dot_product(self, a, b):
+        """Compute the dot product of two vectors."""
+        return sum(x * y for x, y in zip(a, b))
+
     def update_cell(self, row, col, point, std):
-        d = self.distance(point, std)
+        d = self._distance(point, std)
         self.metric[row * N_COLS + col] = d
         return d
 
@@ -274,7 +320,7 @@ class ColorDetector:
         self.P = self.filter.probabilities()
         return self.P
 
-    def distance_point_to_segment(self, point, segment):
+    def _distance_point_to_segment(self, point, segment):
         x1, y1 = segment[0]
         x2, y2 = segment[1]
         x0, y0 = point
@@ -297,10 +343,6 @@ class ColorDetector:
 
         return distance
 
-def _normal_dist(mu=0, sigma=1):
-    u1 = random.uniform(0, 1)
-    u2 = random.uniform(0, 1)
-    return mu + sigma*math.sqrt(-2.0 * math.log(u1)) * math.cos(2 * math.pi * u2)
 
 class Grid:
     def __init__(self, num_rows, num_cols, img_width, img_height):
@@ -484,18 +526,22 @@ if __name__ == "__main__":
     # Color distance
     purpleDet = ColorDetector("Purple", line_ref = COLOR_LINE_REF_PURPLE,
                               max_dist=MAX_DIST_PURPLE, std_range=STD_RANGE_PURPLE,
-                              rgb=(255,0,255))
-    greenDet = ColorDetector("Green", line_ref=COLOR_LINE_REF_GREEN,
-                             max_dist=MAX_DIST_GREEN, std_range=STD_RANGE_GREEN,
-                             rgb=(0,255,0))
-    blueDet = ColorDetector("Blue", line_ref=COLOR_LINE_REF_BLUE,
-                            max_dist=MAX_DIST_BLUE, std_range=STD_RANGE_BLUE,
-                            rgb=(0, 0, 255))
+                              rgb=(255, 0, 255),
+                              mahalanobis=True,
+                              mu=COLOR_PURPLE_MEAN,
+                              sigma_inv=COLOR_PURPLE_INV_COV
+                              )
+#    greenDet = ColorDetector("Green", line_ref=COLOR_LINE_REF_GREEN,
+#                              max_dist=MAX_DIST_GREEN, std_range=STD_RANGE_GREEN,
+#                              rgb=(0,255,0), mahalanobis=False, mu=None, sigma_inv=None)
+#    blueDet = ColorDetector("Blue", line_ref=COLOR_LINE_REF_BLUE,
+#                             max_dist=MAX_DIST_BLUE, std_range=STD_RANGE_BLUE,
+#                             rgb=(0, 0, 255),mahalanobis=False, mu=None, sigma_inv=None)
 
     # flag setup
     flag = 0
 
-    detectors = [purpleDet, greenDet, blueDet]
+    detectors = [purpleDet]#, greenDet, blueDet]
 
     while True:
         if BACKLIGHT_TOO_MUCH:
@@ -535,12 +581,12 @@ if __name__ == "__main__":
 
 
         # Discard purple if blue has higher probability
-        if SEPARATE_BLUE_AND_PURPLE:
-            new_purple = [p if p>b else 0 for p,b in zip(purpleDet.P, blueDet.P)]
+#        if SEPARATE_BLUE_AND_PURPLE:
+#            new_purple = [p if p>b else 0 for p,b in zip(purpleDet.P, blueDet.P)]
 
-        # Combine green and purple
-        if COMBINE_GREEN_AND_PURPLE:
-            metric_grid = [max(p,g) for p,g in zip(new_purple, greenDet.P)]
+#        # Combine green and purple
+#        if COMBINE_GREEN_AND_PURPLE:
+#            metric_grid = [max(p,g) for p,g in zip(new_purple, greenDet.P)]
 
         total_score = max(metric_grid)
         ux, uy, val = grid.action(metric_grid)
@@ -553,28 +599,28 @@ if __name__ == "__main__":
         print("fps:\t", clock.fps(), end='\t')
 
         # Create message for ESP32
-        if total_score > 0.05:
-            if max(new_purple) > max(greenDet.P):
-                led_red.on()
-                led_blue.on()
-                led_green.off()
-            elif max(new_purple) < max(greenDet.P):
-                led_red.off()
-                led_blue.off()
-                led_green.on()
-            else:
-                led_red.on()
-                led_blue.on()
-                led_green.on()
-            if flag:
-                flag = 3 - flag
-            else:
-                flag = 1
-        else:
-            led_red.off()
-            led_blue.off()
-            led_green.off()
-            flag = 0
+#        if total_score > 0.05:
+#            if max(new_purple) > max(greenDet.P):
+#                led_red.on()
+#                led_blue.on()
+#                led_green.off()
+#            elif max(new_purple) < max(greenDet.P):
+#                led_red.off()
+#                led_blue.off()
+#                led_green.on()
+#            else:
+#                led_red.on()
+#                led_blue.on()
+#                led_green.on()
+#            if flag:
+#                flag = 3 - flag
+#            else:
+#                flag = 1
+#        else:
+#            led_red.off()
+#            led_blue.off()
+#            led_green.off()
+#            flag = 0
 
         x_roi, y_roi = x1, y1
         w_roi, h_roi = int(10.0*val), int(10.0*val)
