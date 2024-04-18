@@ -20,6 +20,8 @@ N_COLS = 15
 
 # Probablistic filter for detection
 FILTER = True
+L_MAX = 15
+L_MIN = -8
 
 # print the stats at the upper left corner
 PRINT_CORNER = False
@@ -32,12 +34,18 @@ SEPARATE_BLUE_AND_PURPLE = True
 
 # manual white balance - to be used with *get_gains.py* in the repository
 # - see RGB gain readings in the console
-R_GAIN, G_GAIN, B_GAIN = 66, 60, 108
+R_GAIN, G_GAIN, B_GAIN = 72, 62, 105
 
 # reference line segments for different colors of balloons
 COLOR_LINE_REF_PURPLE = [[26, -40], [11, -20]]
 COLOR_LINE_REF_GREEN = [[-15, 13], [-19, 17]]
 COLOR_LINE_REF_BLUE = [[20, -46], [1, -4]]
+# TODO: replace with the following parameters
+
+# Color distribution
+COLOR_PURPLE_MEAN = [ 14.85185185, -32.2962963 ]
+COLOR_PURPLE_INV_COV = [[0.36527085581188184, 0.2904622446008661], [0.29046224460086617, 0.27376389388412165]]
+DECAY_FACTOR = 4.0
 
 # maximum distance from the stats of a grid to a line reference to be considered the color
 MAX_DIST_PURPLE = 8.0
@@ -95,7 +103,7 @@ class LogOddFilter:
         print("Initial belief=", self.init_belif, "L for detection=", self.l_det, "L for not detection", self.l_ndet )
 
 
-    def update(self, measurements, l_max=10, l_min=-8):
+    def update(self, measurements, l_max=L_MAX, l_min=L_MIN):
         for i, z in enumerate(measurements):
             # Detected or not detected
             li = self.l_det if z else self.l_ndet
@@ -114,13 +122,22 @@ class LogOddFilter:
 
 # color detector based on distance to a line segment on L(AB) color space
 class ColorDetector:
-    def __init__(self, color_id, line_ref, max_dist, std_range, rgb):
+    def __init__(self, color_id, line_ref, max_dist,
+                 std_range, rgb, mahalanobis, mu=None,
+                 sigma_inv=None, decay = DECAY_FACTOR):
         self.color_id = color_id
         self.line_ref = line_ref
         self.max_dist = max_dist
         self.std_range = std_range
         self.rgb = rgb
-
+        # Color distribution
+        self.mahalanobis = mahalanobis
+        if mahalanobis:
+            self.mu = mu  # mu (list): Mean vector.
+            self.sigma_inv = sigma_inv  # sigma_inv (list of lists): Inverse covariance matrix.
+            self.determinant = 1 / (sigma_inv[0][0] * sigma_inv[1][1] - sigma_inv[1][0] * sigma_inv[1][0])
+            print("det ",self.determinant)
+            self.decay = decay
 
         self.metric = [0. for _ in range(N_COLS*N_ROWS)]
 
@@ -128,20 +145,30 @@ class ColorDetector:
         self.filter = LogOddFilter(N_ROWS * N_COLS)
         self.P = [0. for _ in range(N_COLS*N_ROWS)]
 
-    def distance(self, point, std):
+
+    def _distance(self, point, std):
         (l, a, b) = point
-        d =  self.distance_point_to_segment((a,b), self.line_ref)
+        if self.mahalanobis:
+            d = self._distance_mahalanobis((a, b))
+            # print(d, end=", ")
+            # Clamp max distance
+            max_num_std = 5
+            d = d if d < max_num_std else max_num_std
 
-        # Clamp max distance
-        d = d if d<self.max_dist else self.max_dist
+            d = 1 - d / max_num_std
+        else:
+            d = self._distance_point_to_segment((a, b), self.line_ref)
 
-        # Distnace is 1 if close to the line, and 0 if outside the line
-        d = 1 - d / self.max_dist
+            # Clamp max distance
+            d = d if d < self.max_dist else self.max_dist
 
-        # Check if standad deviation is in range
+            # Distance is 1 if close to the line, and 0 if outside the line
+            d = 1 - d / self.max_dist
+
+        # Check if standard deviation is in range
         for s in std:
-            if not self.std_range[0]< s < self.std_range[1]:
-                d=0.0
+            if not self.std_range[0] < s < self.std_range[1]:
+                d = 0.0
                 break
 
         # Too much lightening
@@ -151,8 +178,28 @@ class ColorDetector:
         return d
 
 
+    def _distance_mahalanobis(self, point):
+        """
+        Compute the Mahalanobis distance between a point and a distribution. It uses
+        Parameters:
+            point (list): Point vector.
+        Returns:
+            float: Mahalanobis distance.
+        """
+        # Calculate the difference between the point and the mean
+        diff = [x - y for x, y in zip(point, self.mu)]
+
+        # Compute the Mahalanobis distance
+        mahalanobis_sq = self._dot_product(diff, [self._dot_product(sigma_inv_row, diff) for sigma_inv_row in self.sigma_inv])
+        mahalanobis_dist = mahalanobis_sq ** 0.5
+        return mahalanobis_dist
+
+    def _dot_product(self, a, b):
+        """Compute the dot product of two vectors."""
+        return sum(x * y for x, y in zip(a, b))
+
     def update_cell(self, row, col, point, std):
-        d = self.distance(point, std)
+        d = self._distance(point, std)
         self.metric[row * N_COLS + col] = d
         return d
 
@@ -161,7 +208,7 @@ class ColorDetector:
         self.P = self.filter.probabilities()
         return self.P
 
-    def distance_point_to_segment(self, point, segment):
+    def _distance_point_to_segment(self, point, segment):
         x1, y1 = segment[0]
         x2, y2 = segment[1]
         x0, y0 = point
@@ -183,6 +230,7 @@ class ColorDetector:
         distance = math.sqrt((x0 - closest_point[0]) ** 2 + (y0 - closest_point[1]) ** 2)
 
         return distance
+
 
 def _normal_dist(mu=0, sigma=1):
     u1 = random.uniform(0, 1)
@@ -1577,11 +1625,11 @@ def mode_initialization(input_mode, mode, grid=None, detectors=None):
 if __name__ == "__main__":
     """ Necessary for both modes """
     clock = time.clock()
-    mode = 1 # 0 for balloon detection and 1 for goal
+    mode = 0 # 0 for balloon detection and 1 for goal
 
     # Initialize inter-board communication
     # time of flight sensor initialization
-#    tof = VL53L1X(I2C(2))
+    # tof = VL53L1X(I2C(2)) # seems to interfere with the uart
 
     """ Grid detection setup for balloons """
     sensor.reset()
@@ -1595,13 +1643,16 @@ if __name__ == "__main__":
     # Color distance
     purpleDet = ColorDetector("Purple", line_ref = COLOR_LINE_REF_PURPLE,
                               max_dist=MAX_DIST_PURPLE, std_range=STD_RANGE_PURPLE,
-                              rgb=(255,0,255))
+                              rgb=(255,0,255), mahalanobis=True,
+                              mu=COLOR_PURPLE_MEAN,
+                              sigma_inv=COLOR_PURPLE_INV_COV)
+
     greenDet = ColorDetector("Green", line_ref=COLOR_LINE_REF_GREEN,
-                             max_dist=MAX_DIST_GREEN, std_range=STD_RANGE_GREEN,
-                             rgb=(0,255,0))
+                            max_dist=MAX_DIST_GREEN, std_range=STD_RANGE_GREEN,
+                            rgb=(0,255,0), mahalanobis=False, mu=None, sigma_inv=None)
     blueDet = ColorDetector("Blue", line_ref=COLOR_LINE_REF_BLUE,
                             max_dist=MAX_DIST_BLUE, std_range=STD_RANGE_BLUE,
-                            rgb=(0, 0, 255))
+                            rgb=(0, 0, 255),mahalanobis=False, mu=None, sigma_inv=None)
     detectors = [purpleDet, greenDet, blueDet]
 
 
@@ -1615,6 +1666,7 @@ if __name__ == "__main__":
 
     """ Main loop """
     while True:
+        clock.tick()
         if mode == 0:
             if BACKLIGHT_TOO_MUCH:
                 # semi automatic auto exposure for higher brightness
@@ -1663,6 +1715,8 @@ if __name__ == "__main__":
         else:
             print("0 flag!")
             assert(flag == 0)
+
+        print("fps: ", clock.fps())
 
 
         uart.write(msg)
