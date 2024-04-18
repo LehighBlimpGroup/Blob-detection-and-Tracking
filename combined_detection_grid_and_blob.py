@@ -69,7 +69,7 @@ FRAME_PARAMS = [0, 0, 240, 160] # Upper left corner x, y, width, height
 
 frame_rate = 80 # target framerate that is a lie
 ORANGE_TARGET = [(55, 100, -12, 13, 27, 54)]
-TARGET_COLOR = [(0, 100, -32, 16, 7, 69)]#(48, 100, -44, -14, 30, 61)]#[(54, 100, -56, -5, 11, 70), (0, 100, -78, -19, 23, 61)]#[(49, 97, -45, -6, -16, 60),(39, 56, -12, 15, 48, 63), (39, 61, -19, 1, 45, 64), (20, 61, -34, 57, -25, 57)] # orange, green
+TARGET_COLOR = [(54, 89, -38, 0, 16, 49)]#(48, 100, -44, -14, 30, 61)]#[(54, 100, -56, -5, 11, 70), (0, 100, -78, -19, 23, 61)]#[(49, 97, -45, -6, -16, 60),(39, 56, -12, 15, 48, 63), (39, 61, -19, 1, 45, 64), (20, 61, -34, 57, -25, 57)] # orange, green
 WAIT_TIME_US = 1000000//frame_rate
 
 SATURATION = 128 # global saturation for goal detection mode - not affected by ADVANCED_SENSOR_SETUP, defeult 64
@@ -599,8 +599,8 @@ class ShapeDetector:
         block_height = src_height // self.gridsize
         width_remainder = src_width % self.gridsize
         height_remainder = src_height % self.gridsize
-#        if (block_width == 0 or block_height ==0):
-#            return self.binary_image
+        if (block_width == 0 or block_height ==0):
+            return self.binary_image
 
         # Iterate over each block
         for i in range(self.gridsize):
@@ -1054,7 +1054,7 @@ class GoalTracker(Tracker):
         self.extra_fb3 = sensor.alloc_extra_fb(sensor.width(), sensor.height(), sensor.RGB565)
         self.IR_LED = Pin(LEDpin, Pin.OUT)
         self.IR_LED.value(0)
-        self.roi = MemROI(ffp=0.08, ffs=0.04, gfp=1, gfs=0.8)  # The ROI of the blob
+        self.roi = MemROI(ffp=0.30, ffs=0.08, gfp=1, gfs=0.9)  # The ROI of the blob
         self.tracked_blob = None
         blob, _ = self.find_reference()
         self.tracked_blob = CurBLOB(blob)
@@ -1200,15 +1200,15 @@ class GoalTracker(Tracker):
         # Get an extra frame buffer and take a snapshot
         self.clock.tick()
         ##################################################################
-#        self.LED_STATE = True
-        if self.tracked_blob is not None:
-            if self.tracked_blob.untracked_frames > 1:
-                self.LED_STATE = not self.LED_STATE
-            elif self.tracked_blob.blob_history is None:
-                self.LED_STATE = not self.LED_STATE
+        self.LED_STATE = True
+#        if self.tracked_blob is not None:
+#            if self.tracked_blob.untracked_frames > 1:
+#                self.LED_STATE = not self.LED_STATE
+#            elif self.tracked_blob.blob_history is None:
+#                self.LED_STATE = not self.LED_STATE
 
-        else:
-            self.LED_STATE = not self.LED_STATE
+#        else:
+#            self.LED_STATE = not self.LED_STATE
 #        print("no")
 #        self.sensor_sleep(self.time_last_snapshot)
         self.IR_LED.value(not self.LED_STATE)
@@ -1385,8 +1385,8 @@ def init_sensor_target(tracking_type:int, framesize=sensor.HQVGA, windowsize=Non
         sensor.ioctl(sensor.IOCTL_SET_FOV_WIDE, True)
         sensor.__write_reg(0xfe, 0b00000000) # change to registers at page 0
         sensor.__write_reg(0x80, 0b01111110) # [7] reserved, [6] gamma enable, [5] CC enable,
-        sensor.__write_reg(0x03, 0b00000010) # high bits of exposure control
-        sensor.__write_reg(0x04, 0b11000000) # low bits of exposure control
+        sensor.__write_reg(0x03, 0b00000011) # high bits of exposure control
+        sensor.__write_reg(0x04, 0b11101000) # low bits of exposure control
         sensor.set_pixformat(sensor.RGB565)
         sensor.set_framesize(framesize)
         if ADVANCED_SENSOR_SETUP:
@@ -1566,7 +1566,7 @@ def mode_initialization(input_mode, mode, grid=None, detectors=None):
             thresholds = TARGET_COLOR
             init_sensor_target(tracking_type=1)
             # Find reference
-            tracker = GoalTracker(thresholds, clock, sensor_sleep_time=WAIT_TIME_US)
+            tracker = GoalTracker(thresholds, clock, max_untracked_frames = 10, sensor_sleep_time=WAIT_TIME_US)
             print("Goal mode!")
         else:
             raise ValueError("Invalid mode selection")
@@ -1577,7 +1577,7 @@ def mode_initialization(input_mode, mode, grid=None, detectors=None):
 if __name__ == "__main__":
     """ Necessary for both modes """
     clock = time.clock()
-    mode = 0 # 0 for balloon detection and 1 for goal
+    mode = 1 # 0 for balloon detection and 1 for goal
 
     # Initialize inter-board communication
     # time of flight sensor initialization
