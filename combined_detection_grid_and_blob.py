@@ -11,6 +11,10 @@ from pyb import LED
 import time
 import math
 import omv
+# manual white balance - to be used with *get_gains.py* in the repository
+# - see RGB gain readings in the console
+R_GAIN, G_GAIN, B_GAIN =[64, 60, 97]
+
 
 
 """ MACROS for balloon detection """
@@ -24,7 +28,7 @@ L_MAX = 15
 L_MIN = -8
 
 # print the stats at the upper left corner
-PRINT_CORNER = False
+PRINT_CORNER = True
 
 # whether combine detction of green and purple as target balloons
 COMBINE_GREEN_AND_PURPLE = True
@@ -32,9 +36,7 @@ COMBINE_GREEN_AND_PURPLE = True
 # whether remove blue color from purple color
 SEPARATE_BLUE_AND_PURPLE = True
 
-# manual white balance - to be used with *get_gains.py* in the repository
-# - see RGB gain readings in the console
-R_GAIN, G_GAIN, B_GAIN = 72, 62, 105
+
 
 # reference line segments for different colors of balloons
 COLOR_LINE_REF_PURPLE = [[26, -40], [11, -20]]
@@ -43,9 +45,14 @@ COLOR_LINE_REF_BLUE = [[20, -46], [1, -4]]
 # TODO: replace with the following parameters
 
 # Color distribution
-COLOR_PURPLE_MEAN = [ 14.85185185, -32.2962963 ]
-COLOR_PURPLE_INV_COV = [[0.36527085581188184, 0.2904622446008661], [0.29046224460086617, 0.27376389388412165]]
-DECAY_FACTOR = 4.0
+COLOR_PURPLE_MEAN, COLOR_PURPLE_INV_COV = [10.932203389830509, -19.440677966101696], [[0.07913316538163431, 0.05029436660347752], [0.05029436660347752, 0.04455618868650885]]
+COLOR_PURPLE_DECAY= 5.0
+
+COLOR_GREEN_MEAN, COLOR_GREEN_INV_COV =  [-18.766233766233768, 16.948051948051948] ,  [[0.04257412305507617, 0.019591990949268646], [0.01959199094926865, 0.023100998135960598]]
+COLOR_GREEN_DECAY= 3.0
+
+COLOR_BLUE_MEAN,COLOR_BLUE_INV_COV =[3.3214285714285716, -13.892857142857142], [[0.4794007699603857, 0.19230597556212667], [0.19230597556212667, 0.085939853819115]]
+COLOR_BLUE_DECAY = 2.0  # Less sensitive for lower values
 
 # maximum distance from the stats of a grid to a line reference to be considered the color
 MAX_DIST_PURPLE = 8.0
@@ -87,6 +94,7 @@ ADVANCED_SENSOR_SETUP = False # fine-tune the sensor for goal
 
 """ Balloon grid detection classes and functions """
 # color confidence filter
+
 class LogOddFilter:
     def __init__(self, n, p_det=0.95, p_ndet=0.1, p_x=0.5):
         """
@@ -103,10 +111,19 @@ class LogOddFilter:
         print("Initial belief=", self.init_belif, "L for detection=", self.l_det, "L for not detection", self.l_ndet )
 
 
-    def update(self, measurements, l_max=L_MAX, l_min=L_MIN):
+    def update(self, measurements, l_max=10, l_min=-8):
         for i, z in enumerate(measurements):
+
+            if z < 0.1:
+                li = self.l_ndet
+            else:
+                # The probability of being detected goes from 0.5-1. Not being detected is smaller than 0.5
+                p_x = min(0.99, max(0.55 + 0.45 * z , 0.001))
+                li = math.log(p_x / (1. - p_x))
+                #li = self.l_det
+
             # Detected or not detected
-            li = self.l_det if z else self.l_ndet
+            #li = self.l_det if z else self.l_ndet
             # Belief for li
             self.L[i]+= li -self.init_belif
             # Cap
@@ -122,9 +139,8 @@ class LogOddFilter:
 
 # color detector based on distance to a line segment on L(AB) color space
 class ColorDetector:
-    def __init__(self, color_id, line_ref, max_dist,
-                 std_range, rgb, mahalanobis, mu=None,
-                 sigma_inv=None, decay = DECAY_FACTOR):
+    def __init__(self, color_id, line_ref, max_dist, std_range, rgb, mahalanobis, mu=None, sigma_inv=None, decay = 4.):
+
         self.color_id = color_id
         self.line_ref = line_ref
         self.max_dist = max_dist
@@ -140,7 +156,6 @@ class ColorDetector:
             self.decay = decay
 
         self.metric = [0. for _ in range(N_COLS*N_ROWS)]
-
         # Filter
         self.filter = LogOddFilter(N_ROWS * N_COLS)
         self.P = [0. for _ in range(N_COLS*N_ROWS)]
@@ -149,13 +164,19 @@ class ColorDetector:
     def _distance(self, point, std):
         (l, a, b) = point
         if self.mahalanobis:
-            d = self._distance_mahalanobis((a, b))
-            # print(d, end=", ")
-            # Clamp max distance
-            max_num_std = 5
-            d = d if d < max_num_std else max_num_std
+            d2 = self._distance_mahalanobis((a, b))
 
-            d = 1 - d / max_num_std
+            # Clamp max distance
+            # max_num_std = 5
+            # d = d if d < max_num_std else max_num_std
+
+            # d = 1 - d / max_num_std
+
+            # Compute the coefficient
+            coefficient = 1. #/ (2 * math.pi * math.sqrt(self.determinant))
+            # Compute the PDF value
+            d = coefficient * math.exp(-d2 / self.decay)
+            # print(d, end=", ")
         else:
             d = self._distance_point_to_segment((a, b), self.line_ref)
 
@@ -167,9 +188,9 @@ class ColorDetector:
 
         # Check if standard deviation is in range
         for s in std:
-            if not self.std_range[0] < s < self.std_range[1]:
-                d = 0.0
-                break
+           if not self.std_range[0] < s < self.std_range[1]:
+               d = 0.0
+               break
 
         # Too much lightening
         if not 10 < l < 60:  #fixme magic numbers
@@ -191,8 +212,8 @@ class ColorDetector:
 
         # Compute the Mahalanobis distance
         mahalanobis_sq = self._dot_product(diff, [self._dot_product(sigma_inv_row, diff) for sigma_inv_row in self.sigma_inv])
-        mahalanobis_dist = mahalanobis_sq ** 0.5
-        return mahalanobis_dist
+        # mahalanobis_dist = mahalanobis_sq ** 0.5
+        return mahalanobis_sq
 
     def _dot_product(self, a, b):
         """Compute the dot product of two vectors."""
@@ -230,12 +251,6 @@ class ColorDetector:
         distance = math.sqrt((x0 - closest_point[0]) ** 2 + (y0 - closest_point[1]) ** 2)
 
         return distance
-
-
-def _normal_dist(mu=0, sigma=1):
-    u1 = random.uniform(0, 1)
-    u2 = random.uniform(0, 1)
-    return mu + sigma*math.sqrt(-2.0 * math.log(u1)) * math.cos(2 * math.pi * u2)
 
 # grid-based color detector divisions
 class Grid:
@@ -1657,15 +1672,15 @@ if __name__ == "__main__":
                               max_dist=MAX_DIST_PURPLE, std_range=STD_RANGE_PURPLE,
                               rgb=(255,0,255), mahalanobis=True,
                               mu=COLOR_PURPLE_MEAN,
-                              sigma_inv=COLOR_PURPLE_INV_COV)
+                              sigma_inv=COLOR_PURPLE_INV_COV, decay=COLOR_PURPLE_DECAY)
 
     greenDet = ColorDetector("Green", line_ref=COLOR_LINE_REF_GREEN,
                             max_dist=MAX_DIST_GREEN, std_range=STD_RANGE_GREEN,
-                            rgb=(0,255,0), mahalanobis=False, mu=None, sigma_inv=None)
+                            rgb=(0,255,0), mahalanobis=True, mu=COLOR_GREEN_MEAN, sigma_inv=COLOR_GREEN_INV_COV, decay=COLOR_GREEN_DECAY)
     blueDet = ColorDetector("Blue", line_ref=COLOR_LINE_REF_BLUE,
                             max_dist=MAX_DIST_BLUE, std_range=STD_RANGE_BLUE,
-                            rgb=(0, 0, 255),mahalanobis=False, mu=None, sigma_inv=None)
-    detectors = [purpleDet, greenDet, blueDet]
+                            rgb=(0, 0, 255),mahalanobis=True, mu=COLOR_BLUE_MEAN, sigma_inv=COLOR_BLUE_INV_COV,decay=COLOR_BLUE_DECAY)
+    detectors = [purpleDet, blueDet, greenDet]
 
 
     # Initializing the tracker
