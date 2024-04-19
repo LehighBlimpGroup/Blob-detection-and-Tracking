@@ -77,7 +77,7 @@ FRAME_PARAMS = [0, 0, 240, 160] # Upper left corner x, y, width, height
 
 frame_rate = 80 # target framerate that is a lie
 ORANGE_TARGET = [(55, 100, -12, 13, 27, 54)]
-TARGET_COLOR = [(54, 89, -38, 0, 16, 49)]#(48, 100, -44, -14, 30, 61)]#[(54, 100, -56, -5, 11, 70), (0, 100, -78, -19, 23, 61)]#[(49, 97, -45, -6, -16, 60),(39, 56, -12, 15, 48, 63), (39, 61, -19, 1, 45, 64), (20, 61, -34, 57, -25, 57)] # orange, green
+TARGET_COLOR = [(52, 86, -7, 27, 7, 58)]#[(54, 89, -60, 20, 0, 50)]#(48, 100, -44, -14, 30, 61)]#[(54, 100, -56, -5, 11, 70), (0, 100, -78, -19, 23, 61)]#[(49, 97, -45, -6, -16, 60),(39, 56, -12, 15, 48, 63), (39, 61, -19, 1, 45, 64), (20, 61, -34, 57, -25, 57)] # orange, green
 WAIT_TIME_US = 1000000//frame_rate
 
 SATURATION = 128 # global saturation for goal detection mode - not affected by ADVANCED_SENSOR_SETUP, defeult 64
@@ -592,11 +592,11 @@ class ShapeDetector:
         self.binary_image = sensor.alloc_extra_fb(gridsize, gridsize, sensor.BINARY)
         # Pre-create shapes
         self.img_triangle = self.create_triangle(gridsize)
-        self.tot_tri = sum(self.img_triangle.get_pixel(j, i) for i in range(self.gridsize) for j in range(self.gridsize))
+        self.tot_tri = 1#sum(self.img_triangle.get_pixel(j, i) for i in range(self.gridsize) for j in range(self.gridsize))
         self.img_circle = self.create_circle(gridsize)
-        self.tot_cir = sum(self.img_circle.get_pixel(j, i) for i in range(self.gridsize) for j in range(self.gridsize))
+        self.tot_cir = 1#sum(self.img_circle.get_pixel(j, i) for i in range(self.gridsize) for j in range(self.gridsize))
         self.img_square = self.create_square(gridsize)
-        self.tot_squ = sum(self.img_square.get_pixel(j, i) for i in range(self.gridsize) for j in range(self.gridsize))
+        self.tot_squ = 1#sum(self.img_square.get_pixel(j, i) for i in range(self.gridsize) for j in range(self.gridsize))
 
 
     def __del__(self):
@@ -616,7 +616,7 @@ class ShapeDetector:
         # Flipped isosceles triangle
         img.draw_line(gridsize // 2, 0, 0, gridsize - 1, color=255, thickness=1)  # Apex to left base
         img.draw_line(gridsize // 2, 0, gridsize - 1, gridsize - 1, color=255, thickness=1)  # Apex to right base
-        img.draw_line(0, gridsize - 1, gridsize - 1, gridsize - 1, color=255, thickness=2)  # Base line
+        img.draw_line(0, gridsize - 1, gridsize - 1, gridsize - 1, color=255, thickness=1)  # Base line
 
         return img
 
@@ -636,7 +636,7 @@ class ShapeDetector:
         # Allocate frame buffer for square
         img = sensor.alloc_extra_fb(gridsize, gridsize, sensor.BINARY)
         # Draw a square
-        img.draw_rectangle(0, 0, gridsize, gridsize, color=255, fill=False, thickness=1)
+        img.draw_rectangle(0, 0, gridsize-0, gridsize-0, color=255, fill=False, thickness=1)
         return img
 
     def downsample_and_average(self, roi_img):
@@ -672,12 +672,12 @@ class ShapeDetector:
     def detect_shape(self, roi_img):
         mean_pooled_img = self.downsample_and_average(roi_img.to_grayscale())
 
-        center_size = 3 if self.gridsize > 3 else 1  # Only 3x3 or 1x1, adjust if needed
-        start = (self.gridsize - center_size) // 2
-        end = start + center_size
-        center_sum = sum(mean_pooled_img.get_pixel(j, i) for i in range(start, end) for j in range(start, end))
-        if (center_sum >= center_size**2 * .66):
-            return "not"
+#        center_size = 1#3 if self.gridsize > 3 else 1  # Only 3x3 or 1x1, adjust if needed
+#        start = (self.gridsize - center_size) // 2
+#        end = start + center_size
+#        center_sum = sum(mean_pooled_img.get_pixel(j, i) for i in range(start, end) for j in range(start, end))
+#        if (center_sum >= center_size**2 * .66):
+#            return "not"
         # Prepare for shape comparison
         overlap_triangle = 0
         overlap_circle = 0
@@ -693,13 +693,21 @@ class ShapeDetector:
                         overlap_circle += 1
                     if self.img_square.get_pixel(j, i) == 1:
                         overlap_square += 1
+                else:
+                    if self.img_triangle.get_pixel(j, i) == 1:
+                        overlap_triangle -= 1
+                    if self.img_circle.get_pixel(j, i) == 1:
+                        overlap_circle -= 1
+                    if self.img_square.get_pixel(j, i) == 1:
+                        overlap_square -= 1
 
-#        print("Overlap Triangle:", overlap_triangle, "Overlap Circle:", overlap_circle, "Overlap Square:", overlap_square)
+
+        print("Overlap Triangle:", overlap_triangle/self.tot_tri, "Overlap Circle:", overlap_circle/self.tot_cir, "Overlap Square:", overlap_square/self.tot_squ)
 
         # Identify which shape it is based on maximum overlap
-        if overlap_triangle > overlap_circle and overlap_triangle > overlap_square:
+        if overlap_triangle/self.tot_tri > overlap_circle/self.tot_cir and overlap_triangle/self.tot_tri > overlap_square //self.tot_squ:
             return "triangle"
-        elif overlap_square > overlap_circle:
+        elif overlap_square/self.tot_squ > overlap_circle/self.tot_cir:
             return "square"
         else:
             return "circle"
@@ -1367,15 +1375,19 @@ class GoalTracker(Tracker):
         omv.disable_fb(False)
         big_blobs=[]
         for blob in list_of_blob:
-            if blob.area() > 40 and line_length(blob.minor_axis_line())> 10:
-                roi_img, roi = self.shape_detector.extract_valid_roi(img, blob, self.current_thresholds)
-                if roi_img:
-                    detected_shape = self.shape_detector.detect_shape(roi_img)
-                    if detected_shape != "triangle" and detected_shape != "not":
-                        big_blobs.append(blob)
-                    img.draw_string(blob.x(), blob.y(), detected_shape[0], color=(255, 0, 255))
-                    img.draw_rectangle(blob.rect(), color=(255, 0, 255))
-                    del(roi_img)
+            if blob.area() > 20 and line_length(blob.minor_axis_line())> 10:
+                if self.tracked_blob != None and self.tracked_blob.untracked_frames <= 2:
+                    big_blobs.append(blob)
+                else:
+                    roi_img, roi = self.shape_detector.extract_valid_roi(img, blob, self.current_thresholds)
+                    if roi_img:
+                        detected_shape = self.shape_detector.detect_shape(roi_img)
+                        if detected_shape != "triangle" and detected_shape != "not":
+                            big_blobs.append(blob)
+
+                        img.draw_string(blob.x(), blob.y(), detected_shape[0], color=(255, 0, 255))
+                        img.draw_rectangle(blob.rect(), color=(255, 0, 255))
+                        del(roi_img)
 #                else: # if shape cannot be determined add blob to anyway
 #                    big_blobs.append(blob)
 #                    img.draw_rectangle(blob.rect(), color=(255, 0, 0))  # Red rectangle around the blob for visibility
