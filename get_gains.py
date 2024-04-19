@@ -66,9 +66,7 @@ B_gain = sensor.__read_reg(0xb5)
 pre_gain = sensor.__read_reg(0xb1)
 pos_gain = sensor.__read_reg(0xb2)
 
-print("R gain:\t\t", R_gain)    # R auto gain
-print("G gain:\t\t", G_gain)    # G auto gain
-print("B gain:\t\t", B_gain)    # B auto gain
+print("RGB gain:\t\t", [R_gain, G_gain, B_gain])    # R auto gain
 print("pre-gain:\t\t", pre_gain)    # auto pre-gain, whatever that means
 print("post-gain:\t\t", pos_gain)   # auto post-gain, whatever that means
 
