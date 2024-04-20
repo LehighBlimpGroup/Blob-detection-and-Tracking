@@ -6,16 +6,11 @@ from vl53l1x import VL53L1X
 import image
 import math
 from machine import Pin
-import sensor, image
 from pyb import LED
-import time
-import math
 import omv
 # manual white balance - to be used with *get_gains.py* in the repository
 # - see RGB gain readings in the console
-R_GAIN, G_GAIN, B_GAIN =[64, 60, 97]
-
-
+R_GAIN, G_GAIN, B_GAIN = [64, 66, 107]
 
 """ MACROS for balloon detection """
 # Grid setup
@@ -24,54 +19,59 @@ N_COLS = 15
 
 # Probablistic filter for detection
 FILTER = True
-L_MAX = 15
-L_MIN = -8
+L_MAX = 6
+L_MIN = -1
 
 # print the stats at the upper left corner
-PRINT_CORNER = True
+PRINT_CORNER = False
 
 # whether combine detction of green and purple as target balloons
 COMBINE_GREEN_AND_PURPLE = True
 
 # whether remove blue color from purple color
 SEPARATE_BLUE_AND_PURPLE = True
-
+PURPLE_OVER_BLUE_CONFIDENCE = 1.0
 
 
 # reference line segments for different colors of balloons
-COLOR_LINE_REF_PURPLE = [[26, -40], [11, -20]]
-COLOR_LINE_REF_GREEN = [[-15, 13], [-19, 17]]
-COLOR_LINE_REF_BLUE = [[20, -46], [1, -4]]
+#COLOR_LINE_REF_PURPLE = [[26, -40], [11, -20]]
+#COLOR_LINE_REF_GREEN = [[-15, 13], [-19, 17]]
+#COLOR_LINE_REF_BLUE = [[20, -46], [1, -4]]
 # TODO: replace with the following parameters
 
 # Color distribution
-COLOR_PURPLE_MEAN, COLOR_PURPLE_INV_COV = [10.932203389830509, -19.440677966101696], [[0.07913316538163431, 0.05029436660347752], [0.05029436660347752, 0.04455618868650885]]
+COLOR_PURPLE_MEAN, COLOR_PURPLE_INV_COV = [13.082448153768336, -22.58775923115832] ,  [[0.08616536046155984, 0.046460684661490795], [0.04646068466149079, 0.03607640595864535]]
 COLOR_PURPLE_DECAY= 5.0
 
-COLOR_GREEN_MEAN, COLOR_GREEN_INV_COV =  [-18.766233766233768, 16.948051948051948] ,  [[0.04257412305507617, 0.019591990949268646], [0.01959199094926865, 0.023100998135960598]]
+COLOR_GREEN_MEAN, COLOR_GREEN_INV_COV = [-16.696296296296296, 24.20740740740741] ,  [[0.14558926525037566, 0.04034822309094022], [0.04034822309094022, 0.02363072494115575]]
 COLOR_GREEN_DECAY= 3.0
 
-COLOR_BLUE_MEAN,COLOR_BLUE_INV_COV =[3.3214285714285716, -13.892857142857142], [[0.4794007699603857, 0.19230597556212667], [0.19230597556212667, 0.085939853819115]]
-COLOR_BLUE_DECAY = 2.0  # Less sensitive for lower values
+COLOR_BLUE_MEAN,COLOR_BLUE_INV_COV = [11.53167898627244, -29.639387539598733] ,  [[0.4508598693392845, 0.19059875473061424], [0.19059875473061424, 0.09025185701223036]]
+COLOR_BLUE_DECAY = 5.0  # Less sensitive for lower values
 
 # maximum distance from the stats of a grid to a line reference to be considered the color
-MAX_DIST_PURPLE = 8.0
-MAX_DIST_GREEN = 8.0
-MAX_DIST_BLUE = 3.0
+#MAX_DIST_PURPLE = 8.0
+#MAX_DIST_GREEN = 8.0
+#MAX_DIST_BLUE = 3.0
 
 # allowed standard deviation range for a color detection
 # lower bound filters out uniform colors such as a light source
 # higher bound filters out messy background/environment
-STD_RANGE_PURPLE = [5, 30]
-STD_RANGE_GREEN = [5, 30]
+STD_RANGE_PURPLE = [5, 22]
+STD_RANGE_GREEN = [5, 22]
 STD_RANGE_BLUE = [5, 30]
 
 # a semi-adaptive auto exposure for environment with high contrast
-BACKLIGHT_TOO_MUCH = False
+#BACKLIGHT_TOO_MUCH = False
 
-CAP_EXP_COUNTER = 100
-AES_EVERY = 50
-BRIGHTNESS_MULT = 1.6
+#CAP_EXP_COUNTER = 100
+#AES_EVERY = 50
+#BRIGHTNESS_MULT = 1.6
+
+# balloon tracker
+MAX_LOST_FRAME = 5 # maximum number of frames without detection that is still tracked
+MOMENTUM = 0.5 # keep the tracking result move if no detection is given
+
 
 """ MACROS for goal detection """
 NORM_LEVEL = 2  # Default to use L2 norm, change to L1 to reduce computation
@@ -83,7 +83,6 @@ GF_SIZE = 0.3 # The gain factor for the size
 FRAME_PARAMS = [0, 0, 240, 160] # Upper left corner x, y, width, height
 
 frame_rate = 80 # target framerate that is a lie
-ORANGE_TARGET = [(55, 100, -12, 13, 27, 54)]
 TARGET_COLOR = [(50, 87, -15, 27, 7, 58)]#[(54, 89, -60, 20, 0, 50)]#(48, 100, -44, -14, 30, 61)]#[(54, 100, -56, -5, 11, 70), (0, 100, -78, -19, 23, 61)]#[(49, 97, -45, -6, -16, 60),(39, 56, -12, 15, 48, 63), (39, 61, -19, 1, 45, 64), (20, 61, -34, 57, -25, 57)] # orange, green
 WAIT_TIME_US = 1000000//frame_rate
 
@@ -164,7 +163,10 @@ class ColorDetector:
     def _distance(self, point, std):
         (l, a, b) = point
         if self.mahalanobis:
-            d2 = self._distance_mahalanobis((a, b))
+            if l > 60 or l < 10:
+                d2 = 10
+            else:
+                d2 = self._distance_mahalanobis((a, b))
 
             # Clamp max distance
             # max_num_std = 5
@@ -278,13 +280,12 @@ class Grid:
                 if PRINT_CORNER and row<3 and col<3:
                     print((s.a_mean(), s.b_mean()), end=', ')
 
-            if PRINT_CORNER:
+            if PRINT_CORNER and row<3:
                 print()
 
 
 
     def plot_metric(self, metrics, rgb):
-
         for row in range(self.num_rows):
             for col in range(self.num_cols):
                 roi = (col * self.cell_width, row * self.cell_height, self.cell_width, self.cell_height)
@@ -376,17 +377,7 @@ class Grid:
                 max_row = row
                 max_val = total
 
-
-
-
         x, y = max_col * self.cell_width + self.cell_width// 2, max_row * self.cell_height + self.cell_height // 2
-        radius = int(30 * max_val/9)
-        # Draw the ROI on the image
-
-        if max_val > 0.05:
-            img.draw_circle(x, y, radius, color=(255,0,0), thickness=4, fill=False)
-
-
         return x, y, max_val
 
     def weighted_average(self, metrics):
@@ -416,18 +407,20 @@ class Grid:
 class BalloonTracker:
     # TODO: this is NOT a child class of Tracker
     def __init__(self, grid, detectors,
-                 filter_on=FILTER,
-                 separate_blue_purple=SEPARATE_BLUE_AND_PURPLE,
-                 combine_green_purple=COMBINE_GREEN_AND_PURPLE):
+                 filter_on=FILTER):
         self.grid = grid
         self.detectors = detectors
         self.filter_on = filter_on
-        self.separate_blue_purple = separate_blue_purple
-        self.combine_green_purple = combine_green_purple
         self.flag = int(0)
         self.led_red = LED(1)
         self.led_green = LED(2)
         self.led_blue = LED(3)
+        self.detection_count = 0
+        self.ux = -1
+        self.uy = -1
+        self.val = 0
+        self.velx = 0
+        self.vely = 0
 
     def track(self, img):
         self.grid.count(img, detectors)
@@ -441,18 +434,55 @@ class BalloonTracker:
             grid.plot_metric(metric_grid, detector.rgb)
 
         # Discard purple if blue has higher probability
-        if self.separate_blue_purple:
-            new_purple = [p if p>b else 0 for p,b in zip(purpleDet.P, blueDet.P)]
+        if SEPARATE_BLUE_AND_PURPLE:
+            new_purple = [p if p>PURPLE_OVER_BLUE_CONFIDENCE*b else 0 for p,b in zip(purpleDet.P, blueDet.P)]
 
         # Combine green and purple
-        if self.combine_green_purple:
+        if COMBINE_GREEN_AND_PURPLE:
             metric_grid = [max(p,g) for p,g in zip(new_purple, greenDet.P)]
 
         total_score = max(metric_grid)
         ux, uy, val = grid.action(metric_grid)
 
-        # LED indicator and flag toggle
         if total_score > 0.05:
+            if self.ux == -1:
+                self.ux = ux
+                self.uy = uy
+                self.val = val
+                self.velx = ux - img.width()/2
+                self.vely = uy - img.height()/2
+            else:
+                self.velx = ux - self.ux
+                self.vely = uy - self.uy
+                self.ux = (ux + self.ux)/2
+                self.uy = (uy + self.uy)/2
+                self.val = (self.val + val)/2
+            self.detection_count += 1
+        else:
+            self.detection_count -= 1
+            if not self.ux == -1:
+                self.ux += self.velx * MOMENTUM
+                self.uy += self.vely * MOMENTUM
+                self.velx /= 2
+                self.vely /= 2
+
+        if self.detection_count > MAX_LOST_FRAME:
+            self.detection_count = MAX_LOST_FRAME
+        elif self.detection_count < 0:
+            self.detection_count = 0
+
+        if self.ux > img.width():
+            self.ux = img.width()
+        elif self.ux < 0:
+            self.ux = 0
+
+        if self.uy > img.height():
+            self.uy = img.height()
+        elif self.uy < 0:
+            self.uy = 0
+
+        # LED indicator and flag toggle
+        if self.detection_count > 0:
             if max(new_purple) > max(greenDet.P):
                 self.led_red.on()
                 self.led_blue.on()
@@ -469,15 +499,22 @@ class BalloonTracker:
                 self.flag = 3 - self.flag
             else:
                 self.flag = 1
+            # Draw the ROI on the image
+            img.draw_circle(int(self.ux), int(self.uy), int(5*self.val), color=(255,0,0), thickness=4, fill=False)
         else:
+            self.ux = -1
+            self.uy = -1
+            self.val = 0
             self.led_red.off()
             self.led_blue.off()
             self.led_green.off()
             self.flag = 0
+            self.velx = 0
+            self.vely = 0
 
-        x_roi, y_roi = ux, uy
-        w_roi, h_roi = int(10*val), int(10*val)
-        x_value, y_value = ux, uy
+        x_roi, y_roi = int(self.ux), int(self.uy)
+        w_roi, h_roi = int(10*self.val), int(10*self.val)
+        x_value, y_value = int(self.ux), int(self.uy)
         return [x_roi, y_roi, w_roi, h_roi, x_value, y_value, w_roi, h_roi, 0.0], self.flag | 0x40
 
 """ Goal detection classes and functions """
@@ -1523,7 +1560,7 @@ def init_sensor_target(tracking_type:int, framesize=sensor.HQVGA, windowsize=Non
         #sensor.__write_reg(0x87, 0b00000001)    # [0] auto_edge_effect
         sensor.__write_reg(0x9a, 0b00001111)    # [3] smooth Y, [2] smooth Chroma,
                                                 # [1] neighbor average mode, [0] subsample extend opclk
-        sensor.skip_frames(time = 1000)
+        sensor.skip_frames(2)
         print("block enabling done")
 
         # Edge enhancements
@@ -1536,7 +1573,7 @@ def init_sensor_target(tracking_type:int, framesize=sensor.HQVGA, windowsize=Non
         sensor.__write_reg(0x96, 0b00001100)    # [3:2] edge leve
         sensor.__write_reg(0x97, 0x88)          # [7:4] edge1 effect, [3:0] edge2 effect
         sensor.__write_reg(0x9b, 0b00100010)    # [7:4] edge1 threshold, [3:0] edge2 threshold
-        sensor.skip_frames(time = 1000)
+        sensor.skip_frames(2)
         print("edge enhancement done")
 
         # color correction -- this is very tricky: the color shifts on the color wheel it seems
@@ -1550,7 +1587,7 @@ def init_sensor_target(tracking_type:int, framesize=sensor.HQVGA, windowsize=Non
         sensor.__write_reg(0xfe, 1)             # change to registers at page 1
         sensor.__write_reg(0x9a, 0b11110111)    # [7:4] add dynamic range, [2:0] abs adjust every frame
         sensor.__write_reg(0x9d, 0xff)          # [7:0] Y stretch limit
-        sensor.skip_frames(time = 1000)
+        sensor.skip_frames(2)
         print("anti-blur setup done")
 
 
@@ -1577,7 +1614,7 @@ def init_sensor_target(tracking_type:int, framesize=sensor.HQVGA, windowsize=Non
         sensor.__write_reg(0xae, G_GAIN)    # G gain ratio
         sensor.__write_reg(0xaf, B_GAIN)    # B gain ratio
         sensor.set_auto_exposure(True)
-        sensor.skip_frames(time = 1000)
+        sensor.skip_frames(2)
         print("AWB Gain setup done.")
 
 
@@ -1652,7 +1689,7 @@ def mode_initialization(input_mode, mode, grid=None, detectors=None):
 if __name__ == "__main__":
     """ Necessary for both modes """
     clock = time.clock()
-    mode = 1 # 0 for balloon detection and 1 for goal
+    mode = 0 # 0 for balloon detection and 1 for goal
 
     # Initialize inter-board communication
     # time of flight sensor initialization
@@ -1668,17 +1705,17 @@ if __name__ == "__main__":
     grid = Grid(N_ROWS, N_COLS, img.width(), img.height())
 
     # Color distance
-    purpleDet = ColorDetector("Purple", line_ref = COLOR_LINE_REF_PURPLE,
-                              max_dist=MAX_DIST_PURPLE, std_range=STD_RANGE_PURPLE,
+    purpleDet = ColorDetector("Purple", line_ref = None,
+                              max_dist=None, std_range=STD_RANGE_PURPLE,
                               rgb=(255,0,255), mahalanobis=True,
                               mu=COLOR_PURPLE_MEAN,
                               sigma_inv=COLOR_PURPLE_INV_COV, decay=COLOR_PURPLE_DECAY)
 
-    greenDet = ColorDetector("Green", line_ref=COLOR_LINE_REF_GREEN,
-                            max_dist=MAX_DIST_GREEN, std_range=STD_RANGE_GREEN,
+    greenDet = ColorDetector("Green", line_ref=None,
+                            max_dist=None, std_range=STD_RANGE_GREEN,
                             rgb=(0,255,0), mahalanobis=True, mu=COLOR_GREEN_MEAN, sigma_inv=COLOR_GREEN_INV_COV, decay=COLOR_GREEN_DECAY)
-    blueDet = ColorDetector("Blue", line_ref=COLOR_LINE_REF_BLUE,
-                            max_dist=MAX_DIST_BLUE, std_range=STD_RANGE_BLUE,
+    blueDet = ColorDetector("Blue", line_ref=None,
+                            max_dist=None, std_range=STD_RANGE_BLUE,
                             rgb=(0, 0, 255),mahalanobis=True, mu=COLOR_BLUE_MEAN, sigma_inv=COLOR_BLUE_INV_COV,decay=COLOR_BLUE_DECAY)
     detectors = [purpleDet, blueDet, greenDet]
 
@@ -1694,22 +1731,6 @@ if __name__ == "__main__":
     """ Main loop """
     while True:
         clock.tick()
-        if mode == 0:
-            if BACKLIGHT_TOO_MUCH:
-                # semi automatic auto exposure for higher brightness
-                if exp_counter == 1:
-                    sensor.set_auto_exposure(True)
-                elif exp_counter == CAP_EXP_COUNTER//AES_EVERY:
-                    sensor.set_auto_exposure(False)
-                    sensor.__write_reg(0xfe, 0b00000000)    # change to registers at page 0
-                    high_exp = sensor.__read_reg(0x03)  # high bits of exposure control
-                    low_exp = sensor.__read_reg(0x04)   # low bits of exposure control
-                    exposure = int(((high_exp << 8) + low_exp) * BRIGHTNESS_MULT)
-                    sensor.__write_reg(0x03, exposure >> 8) # force BRIGHTNESS_MULT x exposure time
-                    sensor.__write_reg(0x04, exposure & 0xff) # force BRIGHTNESS_MULT x exposure time
-                elif exp_counter == CAP_EXP_COUNTER:
-                    exp_counter = 0
-                exp_counter += 1
         if mode == 1:
             feature_vector, flag = tracker.track()
         else:
@@ -1743,7 +1764,7 @@ if __name__ == "__main__":
             print("0 flag!")
             assert(flag == 0)
 
-        print("fps: ", clock.fps())
+#        print("fps: ", clock.fps())
 
 
         uart.write(msg)
