@@ -10,17 +10,17 @@ from pyb import LED
 import omv
 # manual white balance - to be used with *get_gains.py* in the repository
 # - see RGB gain readings in the console
-R_GAIN, G_GAIN, B_GAIN = [64, 66, 107]
+R_GAIN, G_GAIN, B_GAIN = [69, 64, 114]
 
 """ MACROS for balloon detection """
 # Grid setup
-N_ROWS = 10
-N_COLS = 15
+N_ROWS = 8
+N_COLS = 12
 
 # Probablistic filter for detection
 FILTER = True
-L_MAX = 6
-L_MIN = -1
+L_MAX = 10
+L_MIN = -2
 
 # print the stats at the upper left corner
 PRINT_CORNER = False
@@ -41,10 +41,10 @@ PURPLE_OVER_BLUE_CONFIDENCE = 1.0
 
 # Color distribution
 COLOR_PURPLE_MEAN, COLOR_PURPLE_INV_COV = [13.082448153768336, -22.58775923115832] ,  [[0.08616536046155984, 0.046460684661490795], [0.04646068466149079, 0.03607640595864535]]
-COLOR_PURPLE_DECAY= 5.0
+COLOR_PURPLE_DECAY = 3.0
 
 COLOR_GREEN_MEAN, COLOR_GREEN_INV_COV = [-16.696296296296296, 24.20740740740741] ,  [[0.14558926525037566, 0.04034822309094022], [0.04034822309094022, 0.02363072494115575]]
-COLOR_GREEN_DECAY= 3.0
+COLOR_GREEN_DECAY = 5.0
 
 COLOR_BLUE_MEAN,COLOR_BLUE_INV_COV = [11.53167898627244, -29.639387539598733] ,  [[0.4508598693392845, 0.19059875473061424], [0.19059875473061424, 0.09025185701223036]]
 COLOR_BLUE_DECAY = 5.0  # Less sensitive for lower values
@@ -57,7 +57,7 @@ COLOR_BLUE_DECAY = 5.0  # Less sensitive for lower values
 # allowed standard deviation range for a color detection
 # lower bound filters out uniform colors such as a light source
 # higher bound filters out messy background/environment
-STD_RANGE_PURPLE = [5, 22]
+STD_RANGE_PURPLE = [5, 25]
 STD_RANGE_GREEN = [5, 22]
 STD_RANGE_BLUE = [5, 30]
 
@@ -69,8 +69,8 @@ STD_RANGE_BLUE = [5, 30]
 #BRIGHTNESS_MULT = 1.6
 
 # balloon tracker
-MAX_LOST_FRAME = 5 # maximum number of frames without detection that is still tracked
-MOMENTUM = 0.5 # keep the tracking result move if no detection is given
+MAX_LOST_FRAME = 10 # maximum number of frames without detection that is still tracked
+MOMENTUM = 0.0 # keep the tracking result move if no detection is given
 
 
 """ MACROS for goal detection """
@@ -202,13 +202,11 @@ class ColorDetector:
 
 
     def _distance_mahalanobis(self, point):
-        """
-        Compute the Mahalanobis distance between a point and a distribution. It uses
-        Parameters:
-            point (list): Point vector.
-        Returns:
-            float: Mahalanobis distance.
-        """
+        # Compute the Mahalanobis distance between a point and a distribution. It uses
+        # Parameters:
+        #     point (list): Point vector.
+        # Returns:
+        #     float: Mahalanobis distance.
         # Calculate the difference between the point and the mean
         diff = [x - y for x, y in zip(point, self.mu)]
 
@@ -293,8 +291,7 @@ class Grid:
                 metric = metrics[row*self.num_cols + col]
 
                 # Draw the number of ones in the corner of the cell
-#                img.draw_string(roi[0], roi[1],str(int(metric*10)) , color=(0,255,0))  #
-
+                # img.draw_string(roi[0], roi[1],str(int(metric*10)) , color=(0,255,0))
                 if metric > 0.001 or (PRINT_CORNER and row<3 and col<3):
                     # Draw the ROI on the image
                     img.draw_rectangle(roi, color=(int(metric*rgb[0]),int(metric*rgb[1]),int(metric*rgb[2])), thickness=1)
@@ -451,25 +448,22 @@ class BalloonTracker:
                 self.val = val
                 self.velx = ux - img.width()/2
                 self.vely = uy - img.height()/2
+                self.flag = 1
             else:
                 self.velx = ux - self.ux
                 self.vely = uy - self.uy
-                self.ux = (ux + self.ux)/2
-                self.uy = (uy + self.uy)/2
-                self.val = (self.val + val)/2
-            self.detection_count += 1
+                self.ux = 0.8*ux + 0.2*self.ux
+                self.uy = 0.8*uy + 0.2*self.uy
+                self.val = 0.25*self.val + 0.75*val
+                self.flag = 3 - self.flag
+            self.detection_count = MAX_LOST_FRAME
         else:
             self.detection_count -= 1
             if not self.ux == -1:
                 self.ux += self.velx * MOMENTUM
                 self.uy += self.vely * MOMENTUM
-                self.velx /= 2
-                self.vely /= 2
-
-        if self.detection_count > MAX_LOST_FRAME:
-            self.detection_count = MAX_LOST_FRAME
-        elif self.detection_count < 0:
-            self.detection_count = 0
+                self.velx *= 0.75
+                self.vely *= 0.75
 
         if self.ux > img.width():
             self.ux = img.width()
@@ -489,19 +483,17 @@ class BalloonTracker:
                 self.led_green.off()
             elif max(new_purple) < max(greenDet.P):
                 self.led_red.off()
-                self.led_blue.off()
+                self.led_blue.on()
                 self.led_green.on()
             else:
                 self.led_red.on()
                 self.led_blue.on()
                 self.led_green.on()
-            if self.flag:
-                self.flag = 3 - self.flag
-            else:
-                self.flag = 1
+
             # Draw the ROI on the image
             img.draw_circle(int(self.ux), int(self.uy), int(5*self.val), color=(255,0,0), thickness=4, fill=False)
         else:
+            self.detection_count = 0
             self.ux = -1
             self.uy = -1
             self.val = 0
@@ -1233,10 +1225,7 @@ class GoalTracker(Tracker):
             return None, self.flag
         elif self.flag == 0x80:
             self.flag = 0x81
-        else:
-            flag_toggling = self.flag & 0x03
-            flag_toggling = 3 - flag_toggling
-            self.flag = 0x80 | flag_toggling
+
         if blob_rect:
             # color_id = self.tracked_blob.blob_history[-1].code()
             # if color_id & 0b1:
@@ -1246,6 +1235,9 @@ class GoalTracker(Tracker):
             #     # orange
             #     flag &= 0xfd
             # If we discover the reference blob again
+            flag_toggling = self.flag & 0x03
+            flag_toggling = 3 - flag_toggling
+            self.flag = 0x80 | flag_toggling
             self.roi.update(blob_rect)
             # We wnat to have a focus on the center of the blob
             shurnk_roi = list(blob_rect)
