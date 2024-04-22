@@ -83,7 +83,7 @@ GF_SIZE = 0.3 # The gain factor for the size
 FRAME_PARAMS = [0, 0, 240, 160] # Upper left corner x, y, width, height
 
 frame_rate = 80 # target framerate that is a lie
-TARGET_COLOR = [(50, 87, -15, 27, 7, 58)]#[(54, 89, -60, 20, 0, 50)]#(48, 100, -44, -14, 30, 61)]#[(54, 100, -56, -5, 11, 70), (0, 100, -78, -19, 23, 61)]#[(49, 97, -45, -6, -16, 60),(39, 56, -12, 15, 48, 63), (39, 61, -19, 1, 45, 64), (20, 61, -34, 57, -25, 57)] # orange, green
+TARGET_COLOR = [(55, 100, -55, -16, 18, 72)]#[(54, 89, -60, 20, 0, 50)]#(48, 100, -44, -14, 30, 61)]#[(54, 100, -56, -5, 11, 70), (0, 100, -78, -19, 23, 61)]#[(49, 97, -45, -6, -16, 60),(39, 56, -12, 15, 48, 63), (39, 61, -19, 1, 45, 64), (20, 61, -34, 57, -25, 57)] # orange, green
 WAIT_TIME_US = 1000000//frame_rate
 
 SATURATION = 128 # global saturation for goal detection mode - not affected by ADVANCED_SENSOR_SETUP, defeult 64
@@ -790,7 +790,7 @@ class CurBLOB:
         initial_blob,
         norm_level: int = NORM_LEVEL,
         feature_dist_threshold: int = 400,
-        window_size=5,
+        window_size=3,
         blob_id=0,
     ) -> None:
         """
@@ -1096,21 +1096,24 @@ class Tracker:
         @param       {bool} lost: If we lost the blob
         @return      {*} None
         """
-        if tracking and detecting and not lost:
-            self.g_LED.off()
-            self.r_LED.off()
-            self.b_LED.on()
-        elif tracking and not detecting and not lost:
-            self.g_LED.off()
-            self.b_LED.on()
-            self.r_LED.on()
-        elif lost:
-            self.b_LED.off()
-            self.r_LED.off()
-            self.g_LED.on()
-        else:
-            print("Error: Invalid LED state")
-            pass
+        self.g_LED.off()
+        self.r_LED.off()
+        self.b_LED.off()
+#        if tracking and detecting and not lost:
+#            self.g_LED.off()
+#            self.r_LED.off()
+#            self.b_LED.on()
+#        elif tracking and not detecting and not lost:
+#            self.g_LED.off()
+#            self.b_LED.on()
+#            self.r_LED.on()
+#        elif lost:
+#            self.b_LED.off()
+#            self.r_LED.off()
+#            self.g_LED.on()
+#        else:
+#            print("Error: Invalid LED state")
+#            pass
 
 # tracking bounding box for the goal
 class GoalTracker(Tracker):
@@ -1225,6 +1228,12 @@ class GoalTracker(Tracker):
             return None, self.flag
         elif self.flag == 0x80:
             self.flag = 0x81
+        elif  self.tracked_blob.untracked_frames < 3:
+            flag_toggling = self.flag & 0x03
+            flag_toggling = 3 - flag_toggling
+            self.flag = 0x80 | flag_toggling
+
+
 
         if blob_rect:
             # color_id = self.tracked_blob.blob_history[-1].code()
@@ -1235,9 +1244,7 @@ class GoalTracker(Tracker):
             #     # orange
             #     flag &= 0xfd
             # If we discover the reference blob again
-            flag_toggling = self.flag & 0x03
-            flag_toggling = 3 - flag_toggling
-            self.flag = 0x80 | flag_toggling
+            print(self.flag)
             self.roi.update(blob_rect)
             # We wnat to have a focus on the center of the blob
             shurnk_roi = list(blob_rect)
@@ -1487,8 +1494,9 @@ def init_sensor_target(tracking_type:int, framesize=sensor.HQVGA, windowsize=Non
         sensor.reset()
         sensor.set_auto_exposure(False)
         sensor.ioctl(sensor.IOCTL_SET_FOV_WIDE, True)
+
         sensor.__write_reg(0xfe, 0b00000000) # change to registers at page 0
-        sensor.__write_reg(0x80, 0b01111110) # [7] reserved, [6] gamma enable, [5] CC enable,
+#        sensor.__write_reg(0x80, 0b01111110) # [7] reserved, [6] gamma enable, [5] CC enable,
         sensor.__write_reg(0x03, 0b00000011) # high bits of exposure control
         sensor.__write_reg(0x04, 0b11101000) # low bits of exposure control
         sensor.set_pixformat(sensor.RGB565)
