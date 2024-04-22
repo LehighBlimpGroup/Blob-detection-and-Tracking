@@ -68,7 +68,7 @@ GF_SIZE = 0.3 # The gain factor for the size
 FRAME_PARAMS = [0, 0, 240, 160] # Upper left corner x, y, width, height
 
 frame_rate = 80 # target framerate that is a lie
-TARGET_COLOR = [(50, 87, -15, 27, 7, 58)]#[(54, 89, -60, 20, 0, 50)]#(48, 100, -44, -14, 30, 61)]#[(54, 100, -56, -5, 11, 70), (0, 100, -78, -19, 23, 61)]#[(49, 97, -45, -6, -16, 60),(39, 56, -12, 15, 48, 63), (39, 61, -19, 1, 45, 64), (20, 61, -34, 57, -25, 57)] # orange, green
+TARGET_COLOR = [(33, 89, -10, 30, -16, 35)]#[(54, 89, -60, 20, 0, 50)]#(48, 100, -44, -14, 30, 61)]#[(54, 100, -56, -5, 11, 70), (0, 100, -78, -19, 23, 61)]#[(49, 97, -45, -6, -16, 60),(39, 56, -12, 15, 48, 63), (39, 61, -19, 1, 45, 64), (20, 61, -34, 57, -25, 57)] # orange, green
 WAIT_TIME_US = 1000000//frame_rate
 
 SATURATION = 128 # global saturation for goal detection mode - not affected by ADVANCED_SENSOR_SETUP, defeult 64
@@ -596,12 +596,12 @@ class MemROI:
 
 
     def update(self, new_roi:list=None)->None:
-        """
-        @description: Update the ROI with a new ROI.
-        @param       {*} self:
-        @param       {list} new_roi: The new roi to map to [x0, y0, w, h]
-        @return      {*} None
-        """
+
+#        @description: Update the ROI with a new ROI.
+#        @param       {*} self:
+#        @param       {list} new_roi: The new roi to map to [x0, y0, w, h]
+#        @return      {*} None
+
         if not new_roi: # No new detection is found in the maximum tracking window
             self.roi = self._map(self.roi, self.frame_params, 0) # Map the ROI to the frame by the forgetting factors
         else:
@@ -717,13 +717,13 @@ class ShapeDetector:
     def detect_shape(self, roi_img):
         mean_pooled_img = self.downsample_and_average(roi_img.to_grayscale())
 
-#        center_size = 1#3 if self.gridsize > 3 else 1  # Only 3x3 or 1x1, adjust if needed
-#        start = (self.gridsize - center_size) // 2
-#        end = start + center_size
-#        center_sum = sum(mean_pooled_img.get_pixel(j, i) for i in range(start, end) for j in range(start, end))
-#        if (center_sum >= center_size**2 * .66):
-#            return "not"
-        # Prepare for shape comparison
+        center_size = 1#3 if self.gridsize > 3 else 1  # Only 3x3 or 1x1, adjust if needed
+        start = (self.gridsize - center_size) // 2
+        end = start + center_size
+        center_sum = sum(mean_pooled_img.get_pixel(j, i) for i in range(start, end) for j in range(start, end))
+        if (center_sum):#(center_sum >= center_size**2 * .66):
+            return "not"
+#         Prepare for shape comparison
         overlap_triangle = 0
         overlap_circle = 0
         overlap_square = 0
@@ -1170,12 +1170,12 @@ class GoalTracker(Tracker):
 
 
     def track(self, edge_removal: bool = True) -> tuple:
-        """
-        @description: Track the blob with dynamic threshold and ROI
-        @param       {*} self:
-        @param       {bool} edge_removal: Whether to remove the edge noises (default: True)
-        @return      {tuple} The feature vector of the tracked blob and whether the blob is tracked
-        """
+#        """
+#        @description: Track the blob with dynamic threshold and ROI
+#        @param       {*} self:
+#        @param       {bool} edge_removal: Whether to remove the edge noises (default: True)
+#        @return      {tuple} The feature vector of the tracked blob and whether the blob is tracked
+#        """
         # the 8-bit flag variable
         # From MSB to LSB
         # [7]: 1 for goal
@@ -1381,9 +1381,9 @@ class GoalTracker(Tracker):
         img.negate()
         list_of_blob = img.find_blobs(
             self.current_thresholds,
-            area_threshold=3,
-            pixels_threshold=3,
-            margin=5,
+            area_threshold=10,
+            pixels_threshold=10,
+            margin=3,
             x_stride=1,
             y_stride=1,
             merge=True,
@@ -1420,8 +1420,8 @@ class GoalTracker(Tracker):
         omv.disable_fb(False)
         big_blobs=[]
         for blob in list_of_blob:
-            if blob.area() > 20 and line_length(blob.minor_axis_line())> 10:
-                if self.tracked_blob != None and self.tracked_blob.untracked_frames <= 2:
+            if blob.area() > 50 and line_length(blob.minor_axis_line())> 10:
+                if self.tracked_blob != None and self.tracked_blob.blob_history != None and len(self.tracked_blob.blob_history) > 3:
                     big_blobs.append(blob)
                 else:
                     roi_img, roi = self.shape_detector.extract_valid_roi(img, blob, self.current_thresholds)
@@ -1490,8 +1490,8 @@ def init_sensor_target(tracking_type:int, framesize=sensor.HQVGA, windowsize=Non
         sensor.ioctl(sensor.IOCTL_SET_FOV_WIDE, True)
         sensor.__write_reg(0xfe, 0b00000000) # change to registers at page 0
         sensor.__write_reg(0x80, 0b01111110) # [7] reserved, [6] gamma enable, [5] CC enable,
-        sensor.__write_reg(0x03, 0b00000011) # high bits of exposure control
-        sensor.__write_reg(0x04, 0b11101000) # low bits of exposure control
+        sensor.__write_reg(0x03, 0b00000100) # high bits of exposure control
+        sensor.__write_reg(0x04, 0b00001000) # low bits of exposure control
         sensor.set_pixformat(sensor.RGB565)
         sensor.set_framesize(framesize)
         if ADVANCED_SENSOR_SETUP:
@@ -1681,7 +1681,7 @@ def mode_initialization(input_mode, mode, grid=None, detectors=None):
 if __name__ == "__main__":
     """ Necessary for both modes """
     clock = time.clock()
-    mode = 0 # 0 for balloon detection and 1 for goal
+    mode = 1 # 0 for balloon detection and 1 for goal
 
     # Initialize inter-board communication
     # time of flight sensor initialization
