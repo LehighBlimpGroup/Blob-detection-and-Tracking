@@ -8,19 +8,21 @@ import math
 from machine import Pin
 from pyb import LED
 import omv
+import random
+
 # manual white balance - to be used with *get_gains.py* in the repository
 # - see RGB gain readings in the console
-R_GAIN, G_GAIN, B_GAIN = [64, 69, 88]
+R_GAIN, G_GAIN, B_GAIN = [75, 61, 95]
 
 """ MACROS for balloon detection """
 # Grid setup
-N_ROWS = 8
-N_COLS = 12
+N_ROWS = 10
+N_COLS = 15
 
 # Probablistic filter for detection
-FILTER = True
-L_MAX = 6
-L_MIN = -4
+FILTER = False
+L_MAX = 2
+L_MIN = -2
 
 # print the stats at the upper left corner
 PRINT_CORNER = False
@@ -29,24 +31,26 @@ PRINT_CORNER = False
 COMBINE_GREEN_AND_PURPLE = True
 
 # whether remove blue color from purple color
-SEPARATE_BLUE_AND_PURPLE = True
+SEPARATE_BLUE_AND_PURPLE = False
 PURPLE_OVER_BLUE_CONFIDENCE = 1.5
 
 # Color distribution
-COLOR_PURPLE_MEAN, COLOR_PURPLE_INV_COV = [13.082448153768336, -22.58775923115832] ,  [[0.08616536046155984, 0.046460684661490795], [0.04646068466149079, 0.03607640595864535]]
-COLOR_PURPLE_DECAY = 2.0
+COLOR_PURPLE_MEAN, COLOR_PURPLE_INV_COV =  [45.25396825396825, -52.05167958656331] ,  [[0.07249486880488244, 0.059589181057085154], [0.05958918105708516, 0.056862643383059575]]
 
-COLOR_GREEN_MEAN, COLOR_GREEN_INV_COV = [-16.696296296296296, 24.20740740740741] ,  [[0.14558926525037566, 0.04034822309094022], [0.04034822309094022, 0.02363072494115575]]
-COLOR_GREEN_DECAY = 4.0
+COLOR_GREEN_MEAN, COLOR_GREEN_INV_COV =  [-21.36122125297383, 13.203013481363996] ,  [[0.026051687559465967, 0.02797671970086942], [0.027976719700869422, 0.03798820733259319]]
 
-COLOR_BLUE_MEAN,COLOR_BLUE_INV_COV = [11.53167898627244, -29.639387539598733] ,  [[0.4508598693392845, 0.19059875473061424], [0.19059875473061424, 0.09025185701223036]]
-COLOR_BLUE_DECAY = 4.0  # Less sensitive for lower values
+COLOR_BLUE_MEAN, COLOR_BLUE_INV_COV =  [35.0, -62.7727501256913] ,  [[0.036586653505946004, 0.03165130899101438], [0.03165130899101438, 0.033147054965256606]]
+
+COLOR_RED_MEAN, COLOR_RED_INV_COV =  [64.13117283950618, 34.8804012345679] ,  [[0.07214081987685156, -0.10688194359795826], [-0.10688194359795827, 0.21169293726607114]]
+COLOR_PURPLE_DECAY = 4.0
+COLOR_GREEN_DECAY = 1.0
+COLOR_BLUE_DECAY = 5.0  # Less sensitive for lower values
 
 # allowed standard deviation range for a color detection
 # lower bound filters out uniform colors such as a light source
 # higher bound filters out messy background/environment
 STD_RANGE_PURPLE = [5, 25]
-STD_RANGE_GREEN = [5, 22]
+STD_RANGE_GREEN = [10, 30]
 STD_RANGE_BLUE = [5, 30]
 
 # balloon tracker
@@ -64,7 +68,6 @@ GF_SIZE = 0.3 # The gain factor for the size
 FRAME_PARAMS = [0, 0, 240, 160] # Upper left corner x, y, width, height
 
 frame_rate = 80 # target framerate that is a lie
-TARGET_COLOR = [(47, 85, -47, -1, 6, 72)]#[(54, 89, -60, 20, 0, 50)]#(48, 100, -44, -14, 30, 61)]#[(54, 100, -56, -5, 11, 70), (0, 100, -78, -19, 23, 61)]#[(49, 97, -45, -6, -16, 60),(39, 56, -12, 15, 48, 63), (39, 61, -19, 1, 45, 64), (20, 61, -34, 57, -25, 57)] # orange, green
 TARGET_COLOR = [(50, 87, -15, 27, 7, 58)]#[(54, 89, -60, 20, 0, 50)]#(48, 100, -44, -14, 30, 61)]#[(54, 100, -56, -5, 11, 70), (0, 100, -78, -19, 23, 61)]#[(49, 97, -45, -6, -16, 60),(39, 56, -12, 15, 48, 63), (39, 61, -19, 1, 45, 64), (20, 61, -34, 57, -25, 57)] # orange, green
 WAIT_TIME_US = 1000000//frame_rate
 
@@ -78,11 +81,7 @@ ADVANCED_SENSOR_SETUP = False # fine-tune the sensor for goal
 
 class LogOddFilter:
     def __init__(self, n, p_det=0.95, p_ndet=0.1, p_x=0.5):
-        """
-
-        p_x: Probability of having a balloon in a cell
-
-        """
+        # p_x: Probability of having a balloon in a cell
 
         self.init_belif = math.log(p_x/(1-p_x))
         self.l_det = math.log(p_det/(1-p_det))
@@ -145,7 +144,7 @@ class ColorDetector:
     def _distance(self, point, std):
         (l, a, b) = point
         if self.mahalanobis:
-            if l > 60 or l < 10:
+            if l > 80 or l < 10:
                 d2 = 10
             else:
                 d2 = self._distance_mahalanobis((a, b))
@@ -177,7 +176,7 @@ class ColorDetector:
                break
 
         # Too much lightening
-        if not 10 < l < 60:  #fixme magic numbers
+        if not 10  < l < 60:  #fixme magic numbers
             d = 0.0
 
         return d
@@ -257,10 +256,10 @@ class Grid:
                     d_mean = detector.update_cell(row, col, (s.l_mean(), s.a_mean(), s.b_mean()),
                                                 (s.l_stdev(), s.a_stdev(), s.b_stdev()))
 
-                if PRINT_CORNER and row<3 and col<3:
+                if PRINT_CORNER and 2<row<6 and 4<col<8:
                     print((s.a_mean(), s.b_mean()), end=', ')
 
-            if PRINT_CORNER and row<3:
+            if PRINT_CORNER and 2<row<6:
                 print()
 
 
@@ -274,7 +273,7 @@ class Grid:
 
                 # Draw the number of ones in the corner of the cell
                 # img.draw_string(roi[0], roi[1],str(int(metric*10)) , color=(0,255,0))
-                if metric > 0.01 or (PRINT_CORNER and row<3 and col<3):
+                if metric > 0.2 or (PRINT_CORNER and 2<row<6 and 4<col<8):
                     # Draw the ROI on the image
                     img.draw_rectangle(roi, color=(int(metric*rgb[0]),int(metric*rgb[1]),int(metric*rgb[2])), thickness=1)
 
@@ -353,6 +352,11 @@ class Grid:
                 max_col = col
                 max_row = row
                 max_val = total
+#            elif total == max_val:
+#                if random.random() > 0.8:
+#                    max_col = col
+#                    max_row = row
+#                    max_val = total
 
 
 
@@ -418,7 +422,8 @@ class BalloonTracker:
         new_purple = purpleDet.P
         if SEPARATE_BLUE_AND_PURPLE:
             new_purple = [p if p > PURPLE_OVER_BLUE_CONFIDENCE*b else 0 for p,b in zip(purpleDet.P, blueDet.P)]
-
+        else:
+            new_purple = purpleDet.P
         # decide which color to track
         if self.balloon_color == None:
             # initialize color of the balloon to track
@@ -449,8 +454,8 @@ class BalloonTracker:
             else:
                 self.velx = ux - self.ux
                 self.vely = uy - self.uy
-                self.ux = 0.8*ux + 0.2*self.ux
-                self.uy = 0.8*uy + 0.2*self.uy
+                self.ux = 0.6*ux + 0.4*self.ux
+                self.uy = 0.6*uy + 0.4*self.uy
                 self.val = 0.25*self.val + 0.75*val
                 self.flag = 3 - self.flag
                 img.draw_circle(int(ux), int(uy), int(5), color=(0,255,255), thickness=4, fill=True)
@@ -786,7 +791,7 @@ class CurBLOB:
         initial_blob,
         norm_level: int = NORM_LEVEL,
         feature_dist_threshold: int = 400,
-        window_size=2,
+        window_size=5,
         blob_id=0,
     ) -> None:
         """
@@ -1150,7 +1155,7 @@ class GoalTracker(Tracker):
         self.extra_fb3 = sensor.alloc_extra_fb(sensor.width(), sensor.height(), sensor.RGB565)
         self.IR_LED = Pin(LEDpin, Pin.OUT)
         self.IR_LED.value(0)
-        self.roi = MemROI(ffp=0.02, ffs=0.2, gfp=.5, gfs=.2)  # The ROI of the blob
+        self.roi = MemROI(ffp=0.30, ffs=0.08, gfp=1, gfs=0.9)  # The ROI of the blob
         self.tracked_blob = None
         blob, _ = self.find_reference()
         self.tracked_blob = CurBLOB(blob)
@@ -1221,12 +1226,6 @@ class GoalTracker(Tracker):
             return None, self.flag
         elif self.flag == 0x80:
             self.flag = 0x81
-        elif  self.tracked_blob.untracked_frames < 2:
-            flag_toggling = self.flag & 0x03
-            flag_toggling = 3 - flag_toggling
-            self.flag = 0x80 | flag_toggling
-
-
 
         if blob_rect:
             # color_id = self.tracked_blob.blob_history[-1].code()
@@ -1237,9 +1236,9 @@ class GoalTracker(Tracker):
             #     # orange
             #     flag &= 0xfd
             # If we discover the reference blob again
-            # flag_toggling = self.flag & 0x03
-            # flag_toggling = 3 - flag_toggling
-            # self.flag = 0x80 | flag_toggling
+            flag_toggling = self.flag & 0x03
+            flag_toggling = 3 - flag_toggling
+            self.flag = 0x80 | flag_toggling
             self.roi.update(blob_rect)
             # We wnat to have a focus on the center of the blob
             shurnk_roi = list(blob_rect)
@@ -1625,11 +1624,10 @@ def init_sensor_target(tracking_type:int, framesize=sensor.HQVGA, windowsize=Non
     if windowsize is not None:
         sensor.set_windowing(windowsize)
 
-""" IBus communication functions """
+# IBus communication functions
 # checksum that we can but we are not using on the ESP side for verifying data integrity
 def checksum(arr, initial= 0):
-    """ The last pair of byte is the checksum on iBus
-    """
+    # The last pair of byte is the checksum on iBus
     sum = initial
     for a in arr:
         sum += a
@@ -1683,13 +1681,13 @@ def mode_initialization(input_mode, mode, grid=None, detectors=None):
 if __name__ == "__main__":
     """ Necessary for both modes """
     clock = time.clock()
-    mode = 1 # 0 for balloon detection and 1 for goal
+    mode = 0 # 0 for balloon detection and 1 for goal
 
     # Initialize inter-board communication
     # time of flight sensor initialization
     # tof = VL53L1X(I2C(2)) # seems to interfere with the uart
 
-    """ Grid detection setup for balloons """
+    # Grid detection setup for balloons
     sensor.reset()
     sensor.set_pixformat(sensor.RGB565)
     sensor.ioctl(sensor.IOCTL_SET_FOV_WIDE, True) # wide FOV
@@ -1711,8 +1709,8 @@ if __name__ == "__main__":
     blueDet = ColorDetector("Blue", line_ref=None,
                             max_dist=None, std_range=STD_RANGE_BLUE,
                             rgb=(0, 0, 255),mahalanobis=True, mu=COLOR_BLUE_MEAN, sigma_inv=COLOR_BLUE_INV_COV,decay=COLOR_BLUE_DECAY)
-    detectors = [purpleDet, blueDet, greenDet]
-
+#    detectors = [purpleDet, blueDet, greenDet]
+    detectors = [purpleDet, greenDet]
 
     # Initializing the tracker
     mode, tracker = mode_initialization(mode, -1, grid, detectors)
@@ -1758,7 +1756,7 @@ if __name__ == "__main__":
             print("0 flag!")
             assert(flag == 0)
 
-#        print("fps: ", clock.fps())
+        print("fps: ", clock.fps())
 
 
         uart.write(msg)
