@@ -68,7 +68,7 @@ GF_SIZE = 0.3 # The gain factor for the size
 FRAME_PARAMS = [0, 0, 240, 160] # Upper left corner x, y, width, height
 
 frame_rate = 80 # target framerate that is a lie
-TARGET_COLOR = [(33, 89, -10, 30, -16, 35)]#[(54, 89, -60, 20, 0, 50)]#(48, 100, -44, -14, 30, 61)]#[(54, 100, -56, -5, 11, 70), (0, 100, -78, -19, 23, 61)]#[(49, 97, -45, -6, -16, 60),(39, 56, -12, 15, 48, 63), (39, 61, -19, 1, 45, 64), (20, 61, -34, 57, -25, 57)] # orange, green
+TARGET_COLOR = [(0, 94, -50, -6, -30, 68)]#(33, 89, -10, 30, -16, 35)]#[(54, 89, -60, 20, 0, 50)]#(48, 100, -44, -14, 30, 61)]#[(54, 100, -56, -5, 11, 70), (0, 100, -78, -19, 23, 61)]#[(49, 97, -45, -6, -16, 60),(39, 56, -12, 15, 48, 63), (39, 61, -19, 1, 45, 64), (20, 61, -34, 57, -25, 57)] # orange, green
 WAIT_TIME_US = 1000000//frame_rate
 
 SATURATION = 128 # global saturation for goal detection mode - not affected by ADVANCED_SENSOR_SETUP, defeult 64
@@ -1097,6 +1097,9 @@ class Tracker:
         @param       {bool} lost: If we lost the blob
         @return      {*} None
         """
+#        self.g_LED.off()
+#        self.r_LED.off()
+#        self.b_LED.off()
         if tracking and detecting and not lost:
             self.g_LED.on()
             self.r_LED.on()
@@ -1106,9 +1109,9 @@ class Tracker:
             self.b_LED.on()
             self.r_LED.on()
         elif lost:
+            self.g_LED.on()
             self.b_LED.on()
             self.r_LED.on()
-            self.g_LED.on()
         else:
             print("Error: Invalid LED state")
             pass
@@ -1148,6 +1151,7 @@ class GoalTracker(Tracker):
             threshold_update_rate,
         )
         self.shape_detector = ShapeDetector(gridsize=9)
+        self.num_blob_hist = 0
         self.LED_STATE = False
         self.time_last_snapshot = time.time_ns()  # wait for the sensor to capture a new image
         self.extra_fb = sensor.alloc_extra_fb(sensor.width(), sensor.height(), sensor.RGB565)
@@ -1190,6 +1194,7 @@ class GoalTracker(Tracker):
             self.update_leds(tracking=False, detecting=False, lost=True)  # Set the LEDs to indicate tracking
             reference_blob, statistics = self.find_reference(time_show_us=0)  # Find the blob with the largest area
             if reference_blob:
+                self.num_blob_hist = 1
                 self.tracked_blob.reinit(reference_blob)  # Initialize the tracked blob with the reference blob
                 # median_lumen = statistics.median()
                 # if median_lumen <= self.current_thresholds[0][1]:
@@ -1214,20 +1219,22 @@ class GoalTracker(Tracker):
         img, list_of_blobs = self.detect(isColored=True, edge_removal=edge_removal)
         blob_rect = self.tracked_blob.update(list_of_blobs)
 
-        if self.tracked_blob.untracked_frames >= self.max_untracked_frames or (not blob_rect and len(self.tracked_blob.blob_history) <= 1):
+        if self.tracked_blob.untracked_frames >= self.max_untracked_frames or (not blob_rect and self.num_blob_hist <= 1):
             # If the blob fails to track for self.max_untracked_frames frames,
             # reset the tracking and find a new reference blob
             self.update_leds(tracking=False, detecting=False, lost=True)
             self.tracked_blob.reset()
             # self.roi.reset() (NOTE: ROI is not reset since we are assuming that the blob tends to appear in the same region when it is lost)
             print("Goal lost")
+            self.num_blob_hist = 0
             self.update_thresholds(reset=True)
             self.flag = 0x80
             return None, self.flag
-        elif self.flag == 0x80 and len(self.tracked_blob.blob_history) == 1:
+        elif self.flag == 0x80 and self.num_blob_hist == 1:
             self.flag = 0x81
 
         if blob_rect:
+            self.num_blob_hist += 1
             # color_id = self.tracked_blob.blob_history[-1].code()
             # if color_id & 0b1:
             #     # green
@@ -1236,7 +1243,7 @@ class GoalTracker(Tracker):
             #     # orange
             #     flag &= 0xfd
             # If we discover the reference blob again
-            if len(self.tracked_blob.blob_history) > 1:
+            if self.num_blob_hist > 1:
                 flag_toggling = self.flag & 0x03
                 flag_toggling = 3 - flag_toggling
                 self.flag = 0x80 | flag_toggling
@@ -1422,7 +1429,7 @@ class GoalTracker(Tracker):
         big_blobs=[]
         for blob in list_of_blob:
             if blob.area() > 50 and line_length(blob.minor_axis_line())> 10:
-                if self.tracked_blob != None and self.tracked_blob.blob_history != None and len(self.tracked_blob.blob_history) > 3:
+                if self.tracked_blob != None and self.num_blob_hist > 5:
                     big_blobs.append(blob)
                 else:
                     roi_img, roi = self.shape_detector.extract_valid_roi(img, blob, self.current_thresholds)
