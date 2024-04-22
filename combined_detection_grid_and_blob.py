@@ -10,7 +10,7 @@ from pyb import LED
 import omv
 # manual white balance - to be used with *get_gains.py* in the repository
 # - see RGB gain readings in the console
-R_GAIN, G_GAIN, B_GAIN = [64, 62, 98]
+R_GAIN, G_GAIN, B_GAIN = [64, 69, 88]
 
 """ MACROS for balloon detection """
 # Grid setup
@@ -19,8 +19,8 @@ N_COLS = 12
 
 # Probablistic filter for detection
 FILTER = True
-L_MAX = 8
-L_MIN = -7
+L_MAX = 6
+L_MIN = -4
 
 # print the stats at the upper left corner
 PRINT_CORNER = False
@@ -34,10 +34,10 @@ PURPLE_OVER_BLUE_CONFIDENCE = 1.5
 
 # Color distribution
 COLOR_PURPLE_MEAN, COLOR_PURPLE_INV_COV = [13.082448153768336, -22.58775923115832] ,  [[0.08616536046155984, 0.046460684661490795], [0.04646068466149079, 0.03607640595864535]]
-COLOR_PURPLE_DECAY = 3.0
+COLOR_PURPLE_DECAY = 2.0
 
 COLOR_GREEN_MEAN, COLOR_GREEN_INV_COV = [-16.696296296296296, 24.20740740740741] ,  [[0.14558926525037566, 0.04034822309094022], [0.04034822309094022, 0.02363072494115575]]
-COLOR_GREEN_DECAY = 5.0
+COLOR_GREEN_DECAY = 4.0
 
 COLOR_BLUE_MEAN,COLOR_BLUE_INV_COV = [11.53167898627244, -29.639387539598733] ,  [[0.4508598693392845, 0.19059875473061424], [0.19059875473061424, 0.09025185701223036]]
 COLOR_BLUE_DECAY = 4.0  # Less sensitive for lower values
@@ -48,13 +48,6 @@ COLOR_BLUE_DECAY = 4.0  # Less sensitive for lower values
 STD_RANGE_PURPLE = [5, 25]
 STD_RANGE_GREEN = [5, 22]
 STD_RANGE_BLUE = [5, 30]
-
-# a semi-adaptive auto exposure for environment with high contrast
-#BACKLIGHT_TOO_MUCH = False
-
-#CAP_EXP_COUNTER = 100
-#AES_EVERY = 50
-#BRIGHTNESS_MULT = 1.6
 
 # balloon tracker
 MAX_LOST_FRAME = 10 # maximum number of frames without detection that is still tracked
@@ -71,7 +64,7 @@ GF_SIZE = 0.3 # The gain factor for the size
 FRAME_PARAMS = [0, 0, 240, 160] # Upper left corner x, y, width, height
 
 frame_rate = 80 # target framerate that is a lie
-TARGET_COLOR = [(55, 100, -55, -16, 18, 72)]#[(54, 89, -60, 20, 0, 50)]#(48, 100, -44, -14, 30, 61)]#[(54, 100, -56, -5, 11, 70), (0, 100, -78, -19, 23, 61)]#[(49, 97, -45, -6, -16, 60),(39, 56, -12, 15, 48, 63), (39, 61, -19, 1, 45, 64), (20, 61, -34, 57, -25, 57)] # orange, green
+TARGET_COLOR = [(50, 87, -15, 27, 7, 58)]#[(54, 89, -60, 20, 0, 50)]#(48, 100, -44, -14, 30, 61)]#[(54, 100, -56, -5, 11, 70), (0, 100, -78, -19, 23, 61)]#[(49, 97, -45, -6, -16, 60),(39, 56, -12, 15, 48, 63), (39, 61, -19, 1, 45, 64), (20, 61, -34, 57, -25, 57)] # orange, green
 WAIT_TIME_US = 1000000//frame_rate
 
 SATURATION = 128 # global saturation for goal detection mode - not affected by ADVANCED_SENSOR_SETUP, defeult 64
@@ -105,14 +98,14 @@ class LogOddFilter:
                 li = self.l_ndet
             else:
                 # The probability of being detected goes from 0.5-1. Not being detected is smaller than 0.5
-                p_x = min(0.99, max(0.55 + 0.45 * z , 0.001))
+                p_x = min(0.99, max(0.52 + 0.48 * z , 0.001))
                 li = math.log(p_x / (1. - p_x))
                 #li = self.l_det
 
             # Detected or not detected
             #li = self.l_det if z else self.l_ndet
             # Belief for li
-            self.L[i]+= li -self.init_belif
+            self.L[i]+= li - self.init_belif
             # Cap
             self.L[i] = min(l_max, max(l_min, self.L[i]))
 
@@ -280,7 +273,7 @@ class Grid:
 
                 # Draw the number of ones in the corner of the cell
                 # img.draw_string(roi[0], roi[1],str(int(metric*10)) , color=(0,255,0))
-                if metric > 0.001 or (PRINT_CORNER and row<3 and col<3):
+                if metric > 0.01 or (PRINT_CORNER and row<3 and col<3):
                     # Draw the ROI on the image
                     img.draw_rectangle(roi, color=(int(metric*rgb[0]),int(metric*rgb[1]),int(metric*rgb[2])), thickness=1)
 
@@ -345,24 +338,24 @@ class Grid:
         for i, m in enumerate(metric):
             row, col = self._index_to_matrix(i)
 
-            # Out of bounds
-            if row < KERNEL_SIZE//2 or col < KERNEL_SIZE//2 or row >= self.num_rows-KERNEL_SIZE//2 or col >= self.num_cols-KERNEL_SIZE//2:
-                continue
-
-            total=m
+            total = 0
             # Neighbors:
             for k1 in range(KERNEL_SIZE):
                 for k2 in range(KERNEL_SIZE):
-                    r, c = row - KERNEL_SIZE//2 + k1, col-KERNEL_SIZE//2+k2  # Row and column
+                    r, c = row - KERNEL_SIZE//2 + k1, col - KERNEL_SIZE//2 + k2  # Row and column
+                    if r < 0 or r > self.num_rows-1 or c < 0 or c > self.num_cols-1:
+                        continue
                     mk = self._matrix_to_index(r, c)
                     total += metric[mk]
 
-            if total>max_val:
+            if total > max_val:
                 max_col = col
                 max_row = row
                 max_val = total
 
-        x, y = max_col * self.cell_width + self.cell_width// 2, max_row * self.cell_height + self.cell_height // 2
+
+
+        x, y = max_col * self.cell_width + self.cell_width // 2, max_row * self.cell_height + self.cell_height // 2
         return x, y, max_val
 
     def weighted_average(self, metrics):
@@ -415,8 +408,9 @@ class BalloonTracker:
             metric_grid = detector.metric
 
             if self.filter_on:
-               metric_grid = detector.update_filter()
-
+                metric_grid = detector.update_filter()
+            else:
+                detector.P = detector.metric
             grid.plot_metric(metric_grid, detector.rgb)
 
         # Discard purple if blue has higher probability
@@ -564,14 +558,12 @@ class MemROI:
         return (rect[0] + rect[2] / 2, rect[1] + rect[3] / 2)
 
     def _map(self, rect1:list, rect2:list, flag:int)->list:
-        """
-        @description: Map rect1 to rect2 by the forgetting factors.
-        @param       {*} self:
-        @param       {list} rect1: Rectangle to be mapped [x0, y0, w, h]
-        @param       {list} rect2: Rectangle to be mapped to [x0, y0, w, h]
-        @param       {int} flag: 0 for forgetting factor, 1 for gain factor
-        @return      {list} The mapped rectangle [x0, y0, w, h]
-        """
+        # @description: Map rect1 to rect2 by the forgetting factors.
+        # @param       {*} self:
+        # @param       {list} rect1: Rectangle to be mapped [x0, y0, w, h]
+        # @param       {list} rect2: Rectangle to be mapped to [x0, y0, w, h]
+        # @param       {int} flag: 0 for forgetting factor, 1 for gain factor
+        # @return      {list} The mapped rectangle [x0, y0, w, h]
         # Get the centers of the rectangles
         cx1, cy1 = self._center(rect1) # Center x, y
         cx2, cy2 = self._center(rect2) # Center x, y
@@ -793,7 +785,7 @@ class CurBLOB:
         initial_blob,
         norm_level: int = NORM_LEVEL,
         feature_dist_threshold: int = 400,
-        window_size=3,
+        window_size=5,
         blob_id=0,
     ) -> None:
         """
@@ -1099,24 +1091,21 @@ class Tracker:
         @param       {bool} lost: If we lost the blob
         @return      {*} None
         """
-        self.g_LED.off()
-        self.r_LED.off()
-        self.b_LED.off()
-#        if tracking and detecting and not lost:
-#            self.g_LED.off()
-#            self.r_LED.off()
-#            self.b_LED.on()
-#        elif tracking and not detecting and not lost:
-#            self.g_LED.off()
-#            self.b_LED.on()
-#            self.r_LED.on()
-#        elif lost:
-#            self.b_LED.off()
-#            self.r_LED.off()
-#            self.g_LED.on()
-#        else:
-#            print("Error: Invalid LED state")
-#            pass
+        if tracking and detecting and not lost:
+            self.g_LED.off()
+            self.r_LED.off()
+            self.b_LED.on()
+        elif tracking and not detecting and not lost:
+            self.g_LED.off()
+            self.b_LED.on()
+            self.r_LED.on()
+        elif lost:
+            self.b_LED.off()
+            self.r_LED.off()
+            self.g_LED.on()
+        else:
+            print("Error: Invalid LED state")
+            pass
 
 # tracking bounding box for the goal
 class GoalTracker(Tracker):
@@ -1231,12 +1220,6 @@ class GoalTracker(Tracker):
             return None, self.flag
         elif self.flag == 0x80:
             self.flag = 0x81
-        elif  self.tracked_blob.untracked_frames < 3:
-            flag_toggling = self.flag & 0x03
-            flag_toggling = 3 - flag_toggling
-            self.flag = 0x80 | flag_toggling
-
-
 
         if blob_rect:
             # color_id = self.tracked_blob.blob_history[-1].code()
@@ -1247,7 +1230,9 @@ class GoalTracker(Tracker):
             #     # orange
             #     flag &= 0xfd
             # If we discover the reference blob again
-            print(self.flag)
+            flag_toggling = self.flag & 0x03
+            flag_toggling = 3 - flag_toggling
+            self.flag = 0x80 | flag_toggling
             self.roi.update(blob_rect)
             # We wnat to have a focus on the center of the blob
             shurnk_roi = list(blob_rect)
@@ -1497,9 +1482,8 @@ def init_sensor_target(tracking_type:int, framesize=sensor.HQVGA, windowsize=Non
         sensor.reset()
         sensor.set_auto_exposure(False)
         sensor.ioctl(sensor.IOCTL_SET_FOV_WIDE, True)
-
         sensor.__write_reg(0xfe, 0b00000000) # change to registers at page 0
-#        sensor.__write_reg(0x80, 0b01111110) # [7] reserved, [6] gamma enable, [5] CC enable,
+        sensor.__write_reg(0x80, 0b01111110) # [7] reserved, [6] gamma enable, [5] CC enable,
         sensor.__write_reg(0x03, 0b00000011) # high bits of exposure control
         sensor.__write_reg(0x04, 0b11101000) # low bits of exposure control
         sensor.set_pixformat(sensor.RGB565)
@@ -1550,13 +1534,13 @@ def init_sensor_target(tracking_type:int, framesize=sensor.HQVGA, windowsize=Non
         """
 
         sensor.__write_reg(0xfe, 0) # change to registers at page 0
-        sensor.__write_reg(0x80, 0b01101000)    # [7] reserved, [6] gamma enable, [5] CC enable,
+        sensor.__write_reg(0x80, 0b01111110)    # [7] reserved, [6] gamma enable, [5] CC enable,
                                                 # [4] Edge enhancement enable
                                                 # [3] Interpolation enable, [2] DN enable, [1] DD enable,
                                                 # [0] Lens-shading correction enable - gives you uneven
                                                 #                                      shade in the dark
                                                 #                                      badly!!!!!
-        sensor.__write_reg(0x81, 0b01010000)    # [7] BLK dither mode, [6] low light Y stretch enable
+        sensor.__write_reg(0x81, 0b01010100)    # [7] BLK dither mode, [6] low light Y stretch enable
                                                 # [5] skin detection enable, [4] reserved, [3] new skin mode
                                                 # [2] autogray enable, [1] reserved, [0] BFF test image mode
         sensor.__write_reg(0x82, 0b00000100)    # [2] ABS enable, [1] AWB enable
