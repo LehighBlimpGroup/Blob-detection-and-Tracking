@@ -791,7 +791,7 @@ class CurBLOB:
         initial_blob,
         norm_level: int = NORM_LEVEL,
         feature_dist_threshold: int = 400,
-        window_size=5,
+        window_size=2,
         blob_id=0,
     ) -> None:
         """
@@ -1098,16 +1098,16 @@ class Tracker:
         @return      {*} None
         """
         if tracking and detecting and not lost:
-            self.g_LED.off()
-            self.r_LED.off()
+            self.g_LED.on()
+            self.r_LED.on()
             self.b_LED.on()
         elif tracking and not detecting and not lost:
-            self.g_LED.off()
+            self.g_LED.on()
             self.b_LED.on()
             self.r_LED.on()
         elif lost:
-            self.b_LED.off()
-            self.r_LED.off()
+            self.b_LED.on()
+            self.r_LED.on()
             self.g_LED.on()
         else:
             print("Error: Invalid LED state")
@@ -1126,19 +1126,19 @@ class GoalTracker(Tracker):
         LEDpin: str = "PG12",
         sensor_sleep_time: int = 50000,
     ) -> None:
-        """
-        @description:
-        @param       {*} self:
-        @param       {list} thresholds: The list of thresholds for the goal
-        @param       {time} clock: The clock to track the time
-        @param       {bool} show: Whether to show the image (default: True)
-        @param       {int} max_untracked_frames: The maximum number of untracked frames until the tracker resets (default: 5)
-        @param       {bool} dynamic_threshold: Whether to use dynamic threshold (default: False)
-        @param       {float} threshold_update_rate: The rate of threshold update (default: 0)
-        @param       {str} LEDpin: The pin of the IR LED (default: "PG12")
-        @param       {int} sensor_sleep_time: The time to sleep after the sensor captures a new image (default: 50000)
-        @return      {*}
-        """
+#        """
+#        @description:
+#        @param       {*} self:
+#        @param       {list} thresholds: The list of thresholds for the goal
+#        @param       {time} clock: The clock to track the time
+#        @param       {bool} show: Whether to show the image (default: True)
+#        @param       {int} max_untracked_frames: The maximum number of untracked frames until the tracker resets (default: 5)
+#        @param       {bool} dynamic_threshold: Whether to use dynamic threshold (default: False)
+#        @param       {float} threshold_update_rate: The rate of threshold update (default: 0)
+#        @param       {str} LEDpin: The pin of the IR LED (default: "PG12")
+#        @param       {int} sensor_sleep_time: The time to sleep after the sensor captures a new image (default: 50000)
+#        @return      {*}
+#        """
         super().__init__(
             thresholds,
             clock,
@@ -1155,7 +1155,7 @@ class GoalTracker(Tracker):
         self.extra_fb3 = sensor.alloc_extra_fb(sensor.width(), sensor.height(), sensor.RGB565)
         self.IR_LED = Pin(LEDpin, Pin.OUT)
         self.IR_LED.value(0)
-        self.roi = MemROI(ffp=0.30, ffs=0.08, gfp=1, gfs=0.9)  # The ROI of the blob
+        self.roi = MemROI(ffp=0.03, ffs=0.20, gfp=.5, gfs=0.2)  # The ROI of the blob
         self.tracked_blob = None
         blob, _ = self.find_reference()
         self.tracked_blob = CurBLOB(blob)
@@ -1214,7 +1214,7 @@ class GoalTracker(Tracker):
         img, list_of_blobs = self.detect(isColored=True, edge_removal=edge_removal)
         blob_rect = self.tracked_blob.update(list_of_blobs)
 
-        if self.tracked_blob.untracked_frames >= self.max_untracked_frames:
+        if self.tracked_blob.untracked_frames >= self.max_untracked_frames or (not blob_rect and len(self.tracked_blob.blob_history) <= 1):
             # If the blob fails to track for self.max_untracked_frames frames,
             # reset the tracking and find a new reference blob
             self.update_leds(tracking=False, detecting=False, lost=True)
@@ -1224,7 +1224,7 @@ class GoalTracker(Tracker):
             self.update_thresholds(reset=True)
             self.flag = 0x80
             return None, self.flag
-        elif self.flag == 0x80:
+        elif self.flag == 0x80 and len(self.tracked_blob.blob_history) == 1:
             self.flag = 0x81
 
         if blob_rect:
@@ -1236,9 +1236,10 @@ class GoalTracker(Tracker):
             #     # orange
             #     flag &= 0xfd
             # If we discover the reference blob again
-            flag_toggling = self.flag & 0x03
-            flag_toggling = 3 - flag_toggling
-            self.flag = 0x80 | flag_toggling
+            if len(self.tracked_blob.blob_history) > 1:
+                flag_toggling = self.flag & 0x03
+                flag_toggling = 3 - flag_toggling
+                self.flag = 0x80 | flag_toggling
             self.roi.update(blob_rect)
             # We wnat to have a focus on the center of the blob
             shurnk_roi = list(blob_rect)
@@ -1670,7 +1671,7 @@ def mode_initialization(input_mode, mode, grid=None, detectors=None):
             thresholds = TARGET_COLOR
             init_sensor_target(tracking_type=1)
             # Find reference
-            tracker = GoalTracker(thresholds, clock, max_untracked_frames = 10, sensor_sleep_time=WAIT_TIME_US)
+            tracker = GoalTracker(thresholds, clock, max_untracked_frames = 5, sensor_sleep_time=WAIT_TIME_US)
             print("Goal mode!")
         else:
             raise ValueError("Invalid mode selection")
