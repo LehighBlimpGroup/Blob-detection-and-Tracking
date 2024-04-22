@@ -10,7 +10,7 @@ from pyb import LED
 import omv
 # manual white balance - to be used with *get_gains.py* in the repository
 # - see RGB gain readings in the console
-R_GAIN, G_GAIN, B_GAIN = [69, 64, 114]
+R_GAIN, G_GAIN, B_GAIN = [64, 62, 98]
 
 """ MACROS for balloon detection """
 # Grid setup
@@ -19,8 +19,8 @@ N_COLS = 12
 
 # Probablistic filter for detection
 FILTER = True
-L_MAX = 10
-L_MIN = -2
+L_MAX = 8
+L_MIN = -7
 
 # print the stats at the upper left corner
 PRINT_CORNER = False
@@ -30,14 +30,7 @@ COMBINE_GREEN_AND_PURPLE = True
 
 # whether remove blue color from purple color
 SEPARATE_BLUE_AND_PURPLE = True
-PURPLE_OVER_BLUE_CONFIDENCE = 1.0
-
-
-# reference line segments for different colors of balloons
-#COLOR_LINE_REF_PURPLE = [[26, -40], [11, -20]]
-#COLOR_LINE_REF_GREEN = [[-15, 13], [-19, 17]]
-#COLOR_LINE_REF_BLUE = [[20, -46], [1, -4]]
-# TODO: replace with the following parameters
+PURPLE_OVER_BLUE_CONFIDENCE = 1.5
 
 # Color distribution
 COLOR_PURPLE_MEAN, COLOR_PURPLE_INV_COV = [13.082448153768336, -22.58775923115832] ,  [[0.08616536046155984, 0.046460684661490795], [0.04646068466149079, 0.03607640595864535]]
@@ -47,12 +40,7 @@ COLOR_GREEN_MEAN, COLOR_GREEN_INV_COV = [-16.696296296296296, 24.20740740740741]
 COLOR_GREEN_DECAY = 5.0
 
 COLOR_BLUE_MEAN,COLOR_BLUE_INV_COV = [11.53167898627244, -29.639387539598733] ,  [[0.4508598693392845, 0.19059875473061424], [0.19059875473061424, 0.09025185701223036]]
-COLOR_BLUE_DECAY = 5.0  # Less sensitive for lower values
-
-# maximum distance from the stats of a grid to a line reference to be considered the color
-#MAX_DIST_PURPLE = 8.0
-#MAX_DIST_GREEN = 8.0
-#MAX_DIST_BLUE = 3.0
+COLOR_BLUE_DECAY = 4.0  # Less sensitive for lower values
 
 # allowed standard deviation range for a color detection
 # lower bound filters out uniform colors such as a light source
@@ -71,7 +59,7 @@ STD_RANGE_BLUE = [5, 30]
 # balloon tracker
 MAX_LOST_FRAME = 10 # maximum number of frames without detection that is still tracked
 MOMENTUM = 0.0 # keep the tracking result move if no detection is given
-
+KERNEL_SIZE = 5
 
 """ MACROS for goal detection """
 NORM_LEVEL = 2  # Default to use L2 norm, change to L1 to reduce computation
@@ -225,7 +213,7 @@ class ColorDetector:
         return d
 
     def update_filter(self):
-        self.filter.update(self.metric)
+        self.filter.update(self.metric, l_min=L_MIN, l_max=L_MAX)
         self.P = self.filter.probabilities()
         return self.P
 
@@ -358,14 +346,14 @@ class Grid:
             row, col = self._index_to_matrix(i)
 
             # Out of bounds
-            if row==0 or col==0 or row==self.num_rows-1 or col== self.num_cols-1:
+            if row < KERNEL_SIZE//2 or col < KERNEL_SIZE//2 or row >= self.num_rows-KERNEL_SIZE//2 or col >= self.num_cols-KERNEL_SIZE//2:
                 continue
 
             total=m
             # Neighbors:
-            for k1 in range(3):
-                for k2 in range(3):
-                    r, c = row-1+k1, col-1+k2  # Row and column
+            for k1 in range(KERNEL_SIZE):
+                for k2 in range(KERNEL_SIZE):
+                    r, c = row - KERNEL_SIZE//2 + k1, col-KERNEL_SIZE//2+k2  # Row and column
                     mk = self._matrix_to_index(r, c)
                     total += metric[mk]
 
@@ -418,6 +406,7 @@ class BalloonTracker:
         self.val = 0
         self.velx = 0
         self.vely = 0
+        self.balloon_color = None
 
     def track(self, img):
         self.grid.count(img, detectors)
@@ -431,17 +420,30 @@ class BalloonTracker:
             grid.plot_metric(metric_grid, detector.rgb)
 
         # Discard purple if blue has higher probability
+        new_purple = purpleDet.P
         if SEPARATE_BLUE_AND_PURPLE:
-            new_purple = [p if p>PURPLE_OVER_BLUE_CONFIDENCE*b else 0 for p,b in zip(purpleDet.P, blueDet.P)]
+            new_purple = [p if p > PURPLE_OVER_BLUE_CONFIDENCE*b else 0 for p,b in zip(purpleDet.P, blueDet.P)]
 
-        # Combine green and purple
-        if COMBINE_GREEN_AND_PURPLE:
-            metric_grid = [max(p,g) for p,g in zip(new_purple, greenDet.P)]
+        # decide which color to track
+        if self.balloon_color == None:
+            # initialize color of the balloon to track
+            if max(new_purple) > max(greenDet.P):
+                self.balloon_color = "P"
+            else:
+                self.balloon_color = "G"
+
+        if self.balloon_color == "G":
+            metric_grid = greenDet.P
+        elif self.balloon_color == "P":
+            # Combine green and purple
+            metric_grid = new_purple
+            # if COMBINE_GREEN_AND_PURPLE:
+            #     metric_grid = [max(p,g) for p,g in zip(new_purple, greenDet.P)]
 
         total_score = max(metric_grid)
         ux, uy, val = grid.action(metric_grid)
 
-        if total_score > 0.05:
+        if total_score > 0.6:
             if self.ux == -1:
                 self.ux = ux
                 self.uy = uy
@@ -456,9 +458,21 @@ class BalloonTracker:
                 self.uy = 0.8*uy + 0.2*self.uy
                 self.val = 0.25*self.val + 0.75*val
                 self.flag = 3 - self.flag
+                img.draw_circle(int(ux), int(uy), int(5), color=(0,255,255), thickness=4, fill=True)
             self.detection_count = MAX_LOST_FRAME
+            if self.balloon_color == "P":
+                self.led_red.on()
+                self.led_blue.on()
+                self.led_green.off()
+            else:
+                self.led_red.off()
+                self.led_blue.on()
+                self.led_green.on()
         else:
             self.detection_count -= 1
+            self.led_red.off()
+            self.led_blue.on()
+            self.led_green.off()
             if not self.ux == -1:
                 self.ux += self.velx * MOMENTUM
                 self.uy += self.vely * MOMENTUM
@@ -469,7 +483,6 @@ class BalloonTracker:
             self.ux = img.width()
         elif self.ux < 0:
             self.ux = 0
-
         if self.uy > img.height():
             self.uy = img.height()
         elif self.uy < 0:
@@ -477,22 +490,12 @@ class BalloonTracker:
 
         # LED indicator and flag toggle
         if self.detection_count > 0:
-            if max(new_purple) > max(greenDet.P):
-                self.led_red.on()
-                self.led_blue.on()
-                self.led_green.off()
-            elif max(new_purple) < max(greenDet.P):
-                self.led_red.off()
-                self.led_blue.on()
-                self.led_green.on()
-            else:
-                self.led_red.on()
-                self.led_blue.on()
-                self.led_green.on()
-
             # Draw the ROI on the image
-            img.draw_circle(int(self.ux), int(self.uy), int(5*self.val), color=(255,0,0), thickness=4, fill=False)
+            img.draw_circle(int(self.ux), int(self.uy),
+                            int(5*self.val), color=(255,0,0),
+                            thickness=4, fill=False)
         else:
+            self.balloon_color = None
             self.detection_count = 0
             self.ux = -1
             self.uy = -1
@@ -1547,13 +1550,13 @@ def init_sensor_target(tracking_type:int, framesize=sensor.HQVGA, windowsize=Non
         """
 
         sensor.__write_reg(0xfe, 0) # change to registers at page 0
-        sensor.__write_reg(0x80, 0b01111110)    # [7] reserved, [6] gamma enable, [5] CC enable,
+        sensor.__write_reg(0x80, 0b01101000)    # [7] reserved, [6] gamma enable, [5] CC enable,
                                                 # [4] Edge enhancement enable
                                                 # [3] Interpolation enable, [2] DN enable, [1] DD enable,
                                                 # [0] Lens-shading correction enable - gives you uneven
                                                 #                                      shade in the dark
                                                 #                                      badly!!!!!
-        sensor.__write_reg(0x81, 0b01010100)    # [7] BLK dither mode, [6] low light Y stretch enable
+        sensor.__write_reg(0x81, 0b01010000)    # [7] BLK dither mode, [6] low light Y stretch enable
                                                 # [5] skin detection enable, [4] reserved, [3] new skin mode
                                                 # [2] autogray enable, [1] reserved, [0] BFF test image mode
         sensor.__write_reg(0x82, 0b00000100)    # [2] ABS enable, [1] AWB enable
