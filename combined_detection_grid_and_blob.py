@@ -1362,18 +1362,6 @@ class GoalTracker(Tracker):
         #IR_LED.value(not LED_STATE)
 
         #original
-        self.IR_LED.value(False)
-        img.sub(self.extra_fb2, reverse=self.LED_STATE)
-        self.extra_fb3.replace(img)
-        img.replace(self.extra_fb)
-        img.sub(self.extra_fb2, reverse=self.LED_STATE)
-        img.difference(self.extra_fb3)
-        self.extra_fb2.replace(img)
-        img.replace(self.extra_fb3)
-        img.sub(self.extra_fb2, reverse=self.LED_STATE)
-
-
-
 #        self.IR_LED.value(False)
 #        img.sub(self.extra_fb2, reverse=self.LED_STATE)
 #        self.extra_fb3.replace(img)
@@ -1383,6 +1371,18 @@ class GoalTracker(Tracker):
 #        self.extra_fb2.replace(img)
 #        img.replace(self.extra_fb3)
 #        img.sub(self.extra_fb2, reverse=self.LED_STATE)
+
+
+
+        self.IR_LED.value(False)
+        img.difference(self.extra_fb2, reverse=self.LED_STATE)
+        self.extra_fb3.replace(img)
+        img.replace(self.extra_fb)
+        img.sub(self.extra_fb2, reverse=self.LED_STATE)
+        img.difference(self.extra_fb3)
+        self.extra_fb2.replace(img)
+        img.replace(self.extra_fb3)
+        img.difference(self.extra_fb2, reverse=self.LED_STATE)
         # Remove the edge noises
 
 
@@ -1391,7 +1391,7 @@ class GoalTracker(Tracker):
             self.current_thresholds,
             area_threshold=10,
             pixels_threshold=10,
-            margin=3,
+            margin=5,
             x_stride=1,
             y_stride=1,
             merge=True,
@@ -1498,8 +1498,8 @@ def init_sensor_target(tracking_type:int, framesize=sensor.HQVGA, windowsize=Non
         sensor.ioctl(sensor.IOCTL_SET_FOV_WIDE, True)
         sensor.__write_reg(0xfe, 0b00000000) # change to registers at page 0
         sensor.__write_reg(0x80, 0b01111110) # [7] reserved, [6] gamma enable, [5] CC enable,
-        sensor.__write_reg(0x03, 0b00000100) # high bits of exposure control
-        sensor.__write_reg(0x04, 0b00001000) # low bits of exposure control
+        sensor.__write_reg(0x03, 0b00000011) # high bits of exposure control
+        sensor.__write_reg(0x04, 0b11111000) # low bits of exposure control
         sensor.set_pixformat(sensor.RGB565)
         sensor.set_framesize(framesize)
         if ADVANCED_SENSOR_SETUP:
