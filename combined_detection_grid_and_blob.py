@@ -12,7 +12,7 @@ import random
 
 # manual white balance - to be used with *get_gains.py* in the repository
 # - see RGB gain readings in the console
-R_GAIN, G_GAIN, B_GAIN = [75, 61, 95]
+R_GAIN, G_GAIN, B_GAIN = [78, 62, 91]
 
 """ MACROS for balloon detection """
 # Grid setup
@@ -20,8 +20,8 @@ N_ROWS = 10
 N_COLS = 15
 
 # Probablistic filter for detection
-FILTER = False
-L_MAX = 2
+FILTER = True
+L_MAX = 3
 L_MIN = -2
 
 # print the stats at the upper left corner
@@ -35,21 +35,21 @@ SEPARATE_BLUE_AND_PURPLE = False
 PURPLE_OVER_BLUE_CONFIDENCE = 1.5
 
 # Color distribution
-COLOR_PURPLE_MEAN, COLOR_PURPLE_INV_COV =  [45.25396825396825, -52.05167958656331] ,  [[0.07249486880488244, 0.059589181057085154], [0.05958918105708516, 0.056862643383059575]]
+COLOR_PURPLE_MEAN, COLOR_PURPLE_INV_COV =  [44.513600737667126, -46.481788842784695] ,  [[0.041864469123940276, 0.03829783053557951], [0.03829783053557951, 0.04840839523033756]]
 
 COLOR_GREEN_MEAN, COLOR_GREEN_INV_COV =  [-21.36122125297383, 13.203013481363996] ,  [[0.026051687559465967, 0.02797671970086942], [0.027976719700869422, 0.03798820733259319]]
 
 COLOR_BLUE_MEAN, COLOR_BLUE_INV_COV =  [35.0, -62.7727501256913] ,  [[0.036586653505946004, 0.03165130899101438], [0.03165130899101438, 0.033147054965256606]]
 
 COLOR_RED_MEAN, COLOR_RED_INV_COV =  [64.13117283950618, 34.8804012345679] ,  [[0.07214081987685156, -0.10688194359795826], [-0.10688194359795827, 0.21169293726607114]]
-COLOR_PURPLE_DECAY = 4.0
+COLOR_PURPLE_DECAY = 3.0
 COLOR_GREEN_DECAY = 1.0
 COLOR_BLUE_DECAY = 5.0  # Less sensitive for lower values
 
 # allowed standard deviation range for a color detection
 # lower bound filters out uniform colors such as a light source
 # higher bound filters out messy background/environment
-STD_RANGE_PURPLE = [5, 25]
+STD_RANGE_PURPLE = [10, 30]
 STD_RANGE_GREEN = [10, 30]
 STD_RANGE_BLUE = [5, 30]
 
@@ -144,7 +144,7 @@ class ColorDetector:
     def _distance(self, point, std):
         (l, a, b) = point
         if self.mahalanobis:
-            if l > 80 or l < 10:
+            if l > 80 or l < 5:
                 d2 = 10
             else:
                 d2 = self._distance_mahalanobis((a, b))
@@ -335,6 +335,7 @@ class Grid:
         max_col = -1
         max_row = -1
         max_val = -1
+        same_val_rc = []
         for i, m in enumerate(metric):
             row, col = self._index_to_matrix(i)
 
@@ -349,16 +350,20 @@ class Grid:
                     total += metric[mk]
 
             if total > max_val:
-                max_col = col
                 max_row = row
+                max_col = col
                 max_val = total
-#            elif total == max_val:
-#                if random.random() > 0.8:
-#                    max_col = col
-#                    max_row = row
-#                    max_val = total
+                same_val_rc = [[max_row, max_col]]
+            elif total == max_val:
+                same_val_rc.append([row, col])
 
+        sum_row, sum_col = 0, 0
+        for rc in same_val_rc:
+            sum_row += rc[0]
+            sum_col += rc[1]
 
+        max_row = sum_row/len(same_val_rc)
+        max_col = sum_col/len(same_val_rc)
 
         x, y = max_col * self.cell_width + self.cell_width // 2, max_row * self.cell_height + self.cell_height // 2
         return x, y, max_val
@@ -1593,14 +1598,13 @@ def init_sensor_target(tracking_type:int, framesize=sensor.HQVGA, windowsize=Non
 
 
         # color settings -- AWB
-        """ Ranting about the trickiness of the setup:
-            Even the auto white balance is disabled, the AWB gains will persist to
-            take effect. Although the correcponding registers are read-only in the
-            document, they are actually manually writeable, and such writings are
-            effective. On top of these messes, another set of registers that are
-            R/W have the exact same effect on the RGB gains, but they are not
-            controlled by the AWB.
-        """
+        # Ranting about the trickiness of the setup:
+        # Even the auto white balance is disabled, the AWB gains will persist to
+        # take effect. Although the correcponding registers are read-only in the
+        # document, they are actually manually writeable, and such writings are
+        # effective. On top of these messes, another set of registers that are
+        # R/W have the exact same effect on the RGB gains, but they are not
+        # controlled by the AWB.
         sensor.set_auto_exposure(False)
         sensor.set_auto_whitebal(False) # no, the gain_rgb_db does not work
 
@@ -1615,6 +1619,7 @@ def init_sensor_target(tracking_type:int, framesize=sensor.HQVGA, windowsize=Non
         sensor.__write_reg(0xae, G_GAIN)    # G gain ratio
         sensor.__write_reg(0xaf, B_GAIN)    # B gain ratio
         sensor.set_auto_exposure(True)
+        # sensor.__write_reg(0xb2, 255)   # post-gain, default 64
         sensor.skip_frames(2)
         print("AWB Gain setup done.")
 
@@ -1689,7 +1694,7 @@ def mode_initialization(input_mode, mode, grid=None, detectors=None):
 if __name__ == "__main__":
     """ Necessary for both modes """
     clock = time.clock()
-    mode = 1 # 0 for balloon detection and 1 for goal
+    mode = 0 # 0 for balloon detection and 1 for goal
 
     # Initialize inter-board communication
     # time of flight sensor initialization
@@ -1718,7 +1723,8 @@ if __name__ == "__main__":
                             max_dist=None, std_range=STD_RANGE_BLUE,
                             rgb=(0, 0, 255),mahalanobis=True, mu=COLOR_BLUE_MEAN, sigma_inv=COLOR_BLUE_INV_COV,decay=COLOR_BLUE_DECAY)
 #    detectors = [purpleDet, blueDet, greenDet]
-    detectors = [purpleDet, greenDet]
+#    detectors = [purpleDet, greenDet]
+    detectors = [purpleDet]
 
     # Initializing the tracker
     mode, tracker = mode_initialization(mode, -1, grid, detectors)
@@ -1764,7 +1770,7 @@ if __name__ == "__main__":
             print("0 flag!")
             assert(flag == 0)
 
-        print("fps: ", clock.fps())
+#        print("fps: ", clock.fps())
 
 
         uart.write(msg)
