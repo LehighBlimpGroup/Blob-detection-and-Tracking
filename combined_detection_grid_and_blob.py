@@ -68,7 +68,8 @@ FRAME_PARAMS = [0, 0, 240, 160] # Upper left corner x, y, width, height
 
 frame_rate = 80 # target framerate that is a lie
 #(33, 89, -10, 30, -16, 35)]#[(54, 89, -60, 20, 0, 50)]#(48, 100, -44, -14, 30, 61)]#[(54, 100, -56, -5, 11, 70), (0, 100, -78, -19, 23, 61)]#[(49, 97, -45, -6, -16, 60),(39, 56, -12, 15, 48, 63), (39, 61, -19, 1, 45, 64), (20, 61, -34, 57, -25, 57)] # orange, green
-TARGET_ORANGE = [(13, 90, 29, 51, 20, 50)]
+TARGET_ORANGE = [(13, 90, 29, 51, 20, 50)] #(12, 87, -9, 62, 15, 50)
+TARGET_COLOR2 = [(12, 87, -9, 62, 15, 50)]
 TARGET_YELLOW = [(38, 92, -25, -5, 22, 50)]
 TARGET_COLOR = TARGET_ORANGE
 WAIT_TIME_US = 1000000//frame_rate
@@ -525,17 +526,17 @@ class MemROI:
     def __init__(self, frame_params:list = FRAME_PARAMS,
                  min_windowsize:int=20, ffp:float=FF_POSITION, ffs:float=FF_SIZE,
                  gfp:float=GF_POSITION, gfs:float=GF_SIZE)->None:
-        """
-        @description: Constructor of the ROI object that memorizes previous states.
-        @param       {*} self:
-        @param       {list} frame_params: The parameters of the frame [x0, y0, max_w, max_h]
-        @param       {int} min_windowsize: The minimum size of the tracking window
-        @param       {float} ffp: The forgetting factor for the position
-        @param       {float} ffs: The forgetting factor for the size
-        @param       {float} gfp: The gain factor for the position
-        @param       {float} gfs: The gain factor for the size
-        @return      {*} None
-        """
+#        """
+#        @description: Constructor of the ROI object that memorizes previous states.
+#        @param       {*} self:
+#        @param       {list} frame_params: The parameters of the frame [x0, y0, max_w, max_h]
+#        @param       {int} min_windowsize: The minimum size of the tracking window
+#        @param       {float} ffp: The forgetting factor for the position
+#        @param       {float} ffs: The forgetting factor for the size
+#        @param       {float} gfp: The gain factor for the position
+#        @param       {float} gfs: The gain factor for the size
+#        @return      {*} None
+#        """
         print(frame_params)
         self.roi = frame_params # [x0, y0, w, h]
         self.frame_params = frame_params  # [x0, y0, max_w, max_h]
@@ -724,12 +725,17 @@ class ShapeDetector:
     def detect_shape(self, roi_img):
         mean_pooled_img = self.downsample_and_average(roi_img.to_grayscale())
 
-        center_size = 1#3 if self.gridsize > 3 else 1  # Only 3x3 or 1x1, adjust if needed
+        center_size = 3#1#3 if self.gridsize > 3 else 1  # Only 3x3 or 1x1, adjust if needed
         start = (self.gridsize - center_size) // 2
         end = start + center_size
         center_sum = sum(mean_pooled_img.get_pixel(j, i) for i in range(start, end) for j in range(start, end))
-        if (center_sum):#(center_sum >= center_size**2 * .66):
+        print(center_sum)
+        if (center_sum >= center_size**2 * .66):
             return "not"
+        tot_sum = sum(mean_pooled_img.get_pixel(j, i) for i in range(0, self.gridsize) for j in range(0, self.gridsize))
+        if (tot_sum == 0):
+            return "not"
+
 #         Prepare for shape comparison
         overlap_triangle = 0
         overlap_circle = 0
@@ -1033,13 +1039,13 @@ class Tracker:
         return max_blob
 
     def _comp_new_threshold(self, statistics: image.statistics, mul_stdev: float = 3) -> tuple:
-        """
-        @description: Compute the new threshold based on the color statistics
-        @param       {image} statistics: The color statistics of the blob
-        @param       {float} mul_stdev: The multiplier of the standard deviation
-        @return      {tuple} The new threshold
-        WARNING: Could be deprecated
-        """
+#        """
+#        @description: Compute the new threshold based on the color statistics
+#        @param       {image} statistics: The color statistics of the blob
+#        @param       {float} mul_stdev: The multiplier of the standard deviation
+#        @return      {tuple} The new threshold
+#        WARNING: Could be deprecated
+#        """
         L_mean = statistics.l_mean()
         L_stdev = statistics.l_stdev()
         A_mean = statistics.a_mean()
@@ -1058,15 +1064,15 @@ class Tracker:
         return new_threshold
 
     def _comp_weighted_avg(self, new_vec: tuple, orig_vec: tuple, w1: float = 0.1, w2: float = 0.9) -> tuple:
-        """
-        @description: Compute the weighted average of two vectors
-        @param       {tuple} new_vec: The new vector
-        @param       {tuple} orig_vec: The original vector to be averaged with
-        @param       {float} w1: The weight of the new vector (default: 0.1)
-        @param       {float} w2: The weight of the original vector (default: 0.9)
-        @return      {tuple} The weighted average of the two vectors
-        WARNING: Could be deprecated
-        """
+#        """
+#        @description: Compute the weighted average of two vectors
+#        @param       {tuple} new_vec: The new vector
+#        @param       {tuple} orig_vec: The original vector to be averaged with
+#        @param       {float} w1: The weight of the new vector (default: 0.1)
+#        @param       {float} w2: The weight of the original vector (default: 0.9)
+#        @return      {tuple} The weighted average of the two vectors
+#        WARNING: Could be deprecated
+#        """
         weighted_avg = [int(w1 * new_vec[i] + w2 * orig_vec[i]) for i in range(len(new_vec))]
         return tuple(weighted_avg)
 
@@ -1076,14 +1082,14 @@ class Tracker:
         recall: bool = False,
         reset: bool = False,
     ) -> None:
-        """
-        @description: Update the thresholds
-        @param       {*} self:
-        @param       {image.statistics} statistics: The color statistics of the blob
-        @param       {bool} recall: If we want to recall the original threshold (default: False)
-        @param       {bool} reset: If we want to reset the threshold (default: False)
-        @return      {*} None
-        """
+#        """
+#        @description: Update the thresholds
+#        @param       {*} self:
+#        @param       {image.statistics} statistics: The color statistics of the blob
+#        @param       {bool} recall: If we want to recall the original threshold (default: False)
+#        @param       {bool} reset: If we want to reset the threshold (default: False)
+#        @return      {*} None
+#        """
         if not self.dynamic_threshold:
             return
         if recall:
@@ -1100,14 +1106,14 @@ class Tracker:
             )
 
     def update_leds(self, tracking: bool = False, detecting: bool = False, lost: bool = True) -> None:
-        """
-        @description: Update the LEDs state
-        @param       {*} self:
-        @param       {bool} tracking: If we are tracking the blob in the roi
-        @param       {bool} detecting: If we are actually detecting the blob
-        @param       {bool} lost: If we lost the blob
-        @return      {*} None
-        """
+#        """
+#        @description: Update the LEDs state
+#        @param       {*} self:
+#        @param       {bool} tracking: If we are tracking the blob in the roi
+#        @param       {bool} detecting: If we are actually detecting the blob
+#        @param       {bool} lost: If we lost the blob
+#        @return      {*} None
+#        """
 #        self.g_LED.off()
 #        self.r_LED.off()
 #        self.b_LED.off()
@@ -1230,7 +1236,7 @@ class GoalTracker(Tracker):
         img, list_of_blobs = self.detect(isColored=True, edge_removal=edge_removal)
         blob_rect = self.tracked_blob.update(list_of_blobs)
 
-        if self.tracked_blob.untracked_frames >= self.max_untracked_frames or (not blob_rect and self.num_blob_hist <= 1):
+        if self.tracked_blob.untracked_frames >= self.max_untracked_frames or (not blob_rect and self.num_blob_hist <= 2):
             # If the blob fails to track for self.max_untracked_frames frames,
             # reset the tracking and find a new reference blob
             self.update_leds(tracking=False, detecting=False, lost=True)
@@ -1241,7 +1247,7 @@ class GoalTracker(Tracker):
             self.update_thresholds(reset=True)
             self.flag = 0x80
             return None, self.flag
-        elif self.flag == 0x80 and self.num_blob_hist == 1:
+        elif self.flag == 0x80 and self.num_blob_hist == 2:
             self.flag = 0x81
 
         if blob_rect:
@@ -1254,7 +1260,7 @@ class GoalTracker(Tracker):
             #     # orange
             #     flag &= 0xfd
             # If we discover the reference blob again
-            if self.num_blob_hist > 1:
+            if self.num_blob_hist > 2:
                 flag_toggling = self.flag & 0x03
                 flag_toggling = 3 - flag_toggling
                 self.flag = 0x80 | flag_toggling
@@ -1288,12 +1294,12 @@ class GoalTracker(Tracker):
         self,
         time_show_us: int = 50000,
     ) -> tuple:
-        """
-        @description: Find the a good blob to be the reference blob
-        @param       {*} self:
-        @param       {int} time_show_us: The time to show the blob on the screen
-        @return      {tuple} The reference blob and its color statistics
-        """
+#        """
+#        @description: Find the a good blob to be the reference blob
+#        @param       {*} self:
+#        @param       {int} time_show_us: The time to show the blob on the screen
+#        @return      {tuple} The reference blob and its color statistics
+#        """
         omv.disable_fb(False)
 
         img, nice_blobs = self.detect(isColored=True, edge_removal=False)
@@ -1403,16 +1409,30 @@ class GoalTracker(Tracker):
             self.LED_STATE = True
             img = sensor.snapshot()
 
-        list_of_blob = img.find_blobs(
-            self.current_thresholds,
-            area_threshold=3,
-            pixels_threshold=3,
-            margin=4,
-            x_stride=1,
-            y_stride=1,
-            merge=True,
 
-        )
+        if self.num_blob_hist > 5 and self.current_thresholds == TARGET_ORANGE:
+            list_of_blob = img.find_blobs(
+                TARGET_COLOR2,
+                area_threshold=3,
+                pixels_threshold=3,
+                margin=10,
+                x_stride=1,
+                y_stride=1,
+                merge=True,
+
+            )
+
+        else:
+            list_of_blob = img.find_blobs(
+                self.current_thresholds,
+                area_threshold=3,
+                pixels_threshold=3,
+                margin=10,
+                x_stride=1,
+                y_stride=1,
+                merge=True,
+
+            )
 #        largest_blob = max(list_of_blob, key=lambda b: b.area(), default=None)
 
         #shape detection/determination
@@ -1450,6 +1470,21 @@ class GoalTracker(Tracker):
 #                else:
                     roi_img, roi = self.shape_detector.extract_valid_roi(img, blob, self.current_thresholds)
                     if roi_img:
+
+                        mean_pooled_img = self.shape_detector.downsample_and_average(roi_img)
+                        gridsize = 9
+            #             Visually represent the data (example code)
+                        scale_x = roi[2] / gridsize
+                        scale_y = roi[3] / gridsize
+                        for i in range(gridsize):
+                            for j in range(gridsize):
+                                gray_value = mean_pooled_img.get_pixel(j, i) *255
+                                rect_x = roi[0] + j * int(scale_x)
+                                rect_y = roi[1] + i * int(scale_y)
+                                rect_width = max(int(scale_x), 1)
+                                rect_height = max(int(scale_y), 1)
+                                img.draw_rectangle(rect_x, rect_y, rect_width, rect_height, color=(gray_value, gray_value, gray_value), fill=True)
+
                         detected_shape = self.shape_detector.detect_shape(roi_img)
                         if detected_shape != "triangle" and detected_shape != "not":
                             big_blobs.append(blob)
@@ -1694,7 +1729,7 @@ def mode_initialization(input_mode, mode, grid=None, detectors=None):
             thresholds = TARGET_COLOR
             init_sensor_target(tracking_type=1)
             # Find reference
-            tracker = GoalTracker(thresholds, clock, max_untracked_frames = 30, sensor_sleep_time=WAIT_TIME_US)
+            tracker = GoalTracker(thresholds, clock, max_untracked_frames = 10, sensor_sleep_time=WAIT_TIME_US)
             print("Goal mode!")
         else:
             raise ValueError("Invalid mode selection")
