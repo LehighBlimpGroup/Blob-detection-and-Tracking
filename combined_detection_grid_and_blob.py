@@ -12,7 +12,7 @@ import random
 
 # manual white balance - to be used with *get_gains.py* in the repository
 # - see RGB gain readings in the console
-R_GAIN, G_GAIN, B_GAIN = [87, 66, 96]
+R_GAIN, G_GAIN, B_GAIN = [80, 64, 98]
 """ MACROS for balloon detection """
 # Grid setup
 N_ROWS = 10
@@ -41,7 +41,7 @@ COLOR_GREEN_MEAN, COLOR_GREEN_INV_COV =  [-21.36122125297383, 13.203013481363996
 COLOR_BLUE_MEAN, COLOR_BLUE_INV_COV =  [35.0, -62.7727501256913] ,  [[0.036586653505946004, 0.03165130899101438], [0.03165130899101438, 0.033147054965256606]]
 
 COLOR_RED_MEAN, COLOR_RED_INV_COV =  [64.13117283950618, 34.8804012345679] ,  [[0.07214081987685156, -0.10688194359795826], [-0.10688194359795827, 0.21169293726607114]]
-COLOR_PURPLE_DECAY = 4.0
+COLOR_PURPLE_DECAY = 3.5
 COLOR_GREEN_DECAY = 1.0
 COLOR_BLUE_DECAY = 5.0  # Less sensitive for lower values
 
@@ -179,8 +179,8 @@ class ColorDetector:
                break
 
         # Too much lightening
-        if not 8  < l < 60:  #fixme magic numbers
-            d = 0.0
+#        if not 8  < l < 60:  #fixme magic numbers
+#            d = 0.0
 
         return d
 
@@ -1740,7 +1740,7 @@ def mode_initialization(input_mode, mode, grid=None, detectors=None):
 if __name__ == "__main__":
 #    """ Necessary for both modes """
     clock = time.clock()
-    mode = 1 # 0 for balloon detection and 1 for goal
+    mode = 0 # 0 for balloon detection and 1 for goal
 
     # Initialize inter-board communication
     # time of flight sensor initialization
