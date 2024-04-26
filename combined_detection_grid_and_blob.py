@@ -68,9 +68,9 @@ FRAME_PARAMS = [0, 0, 240, 160] # Upper left corner x, y, width, height
 
 frame_rate = 80 # target framerate that is a lie
 #(33, 89, -10, 30, -16, 35)]#[(54, 89, -60, 20, 0, 50)]#(48, 100, -44, -14, 30, 61)]#[(54, 100, -56, -5, 11, 70), (0, 100, -78, -19, 23, 61)]#[(49, 97, -45, -6, -16, 60),(39, 56, -12, 15, 48, 63), (39, 61, -19, 1, 45, 64), (20, 61, -34, 57, -25, 57)] # orange, green
-TARGET_ORANGE = [(13, 90, 18, 52, -21, 47)]
+TARGET_ORANGE = [(13, 90, 29, 51, 20, 50)]
 TARGET_YELLOW = [(38, 92, -25, -5, 22, 50)]
-TARGET_COLOR = TARGET_YELLOW
+TARGET_COLOR = TARGET_ORANGE
 WAIT_TIME_US = 1000000//frame_rate
 
 SATURATION = 128 # global saturation for goal detection mode - not affected by ADVANCED_SENSOR_SETUP, defeult 64
@@ -802,7 +802,7 @@ class CurBLOB:
         initial_blob,
         norm_level: int = NORM_LEVEL,
         feature_dist_threshold: int = 400,
-        window_size=3,
+        window_size=4,
         blob_id=0,
     ) -> None:
         """
@@ -1170,7 +1170,7 @@ class GoalTracker(Tracker):
         self.extra_fb3 = sensor.alloc_extra_fb(sensor.width(), sensor.height(), sensor.RGB565)
         self.IR_LED = Pin(LEDpin, Pin.OUT)
         self.IR_LED.value(0)
-        self.roi = MemROI(ffp=0.01, ffs=0.02, gfp=.3, gfs=0.3)  # The ROI of the blob
+        self.roi = MemROI(ffp=0.01, ffs=0.02, gfp=.3, gfs=0.03)  # The ROI of the blob
         self.tracked_blob = None
         blob, _ = self.find_reference()
         self.tracked_blob = CurBLOB(blob)
@@ -1405,9 +1405,9 @@ class GoalTracker(Tracker):
 
         list_of_blob = img.find_blobs(
             self.current_thresholds,
-            area_threshold=10,
-            pixels_threshold=10,
-            margin=5,
+            area_threshold=3,
+            pixels_threshold=3,
+            margin=4,
             x_stride=1,
             y_stride=1,
             merge=True,
@@ -1794,12 +1794,12 @@ if __name__ == "__main__":
                 if res:
                     mode, tracker = res
             elif uart_input[-1] == 0x80 and mode == 0:
-                TARGET_COLOR = TARGET_ORANGE
+#                TARGET_COLOR = TARGET_YELLOW
                 res = mode_initialization(1, mode)
                 if res:
                     mode, tracker = res
             elif uart_input[-1] == 0x81 and mode == 0:
-                TARGET_COLOR = TARGET_YELLOW
+#                TARGET_COLOR = TARGET_YELLOW
                 res = mode_initialization(1, mode)
                 if res:
                     mode, tracker = res
