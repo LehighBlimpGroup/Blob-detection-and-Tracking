@@ -58,7 +58,7 @@ MAX_LOST_FRAME = 10 # maximum number of frames without detection that is still t
 MOMENTUM = 0.0 # keep the tracking result move if no detection is given
 KERNEL_SIZE = 5
 
-""" MACROS for goal detection """
+#""" MACROS for goal detection """
 NORM_LEVEL = 2  # Default to use L2 norm, change to L1 to reduce computation
 MAX_FEATURE_DIST = 32767  # The maximum feature distance
 FF_POSITION = 0.0 # The forgetting factor for the position
@@ -68,7 +68,10 @@ GF_SIZE = 0.3 # The gain factor for the size
 FRAME_PARAMS = [0, 0, 240, 160] # Upper left corner x, y, width, height
 
 frame_rate = 80 # target framerate that is a lie
-TARGET_COLOR = [(0, 94, -50, -6, -30, 68)]#(33, 89, -10, 30, -16, 35)]#[(54, 89, -60, 20, 0, 50)]#(48, 100, -44, -14, 30, 61)]#[(54, 100, -56, -5, 11, 70), (0, 100, -78, -19, 23, 61)]#[(49, 97, -45, -6, -16, 60),(39, 56, -12, 15, 48, 63), (39, 61, -19, 1, 45, 64), (20, 61, -34, 57, -25, 57)] # orange, green
+#(33, 89, -10, 30, -16, 35)]#[(54, 89, -60, 20, 0, 50)]#(48, 100, -44, -14, 30, 61)]#[(54, 100, -56, -5, 11, 70), (0, 100, -78, -19, 23, 61)]#[(49, 97, -45, -6, -16, 60),(39, 56, -12, 15, 48, 63), (39, 61, -19, 1, 45, 64), (20, 61, -34, 57, -25, 57)] # orange, green
+TARGET_ORANGE = [(13, 90, 18, 52, -21, 47)]
+TARGET_YELLOW = [(38, 92, -25, -5, 22, 50)]
+TARGET_COLOR = TARGET_YELLOW
 WAIT_TIME_US = 1000000//frame_rate
 
 SATURATION = 128 # global saturation for goal detection mode - not affected by ADVANCED_SENSOR_SETUP, defeult 64
@@ -76,7 +79,7 @@ CONTRAST = 40 # global contrast for goal detection mode - not affected by ADVANC
 ADVANCED_SENSOR_SETUP = False # fine-tune the sensor for goal
 
 
-""" Balloon grid detection classes and functions """
+#""" Balloon grid detection classes and functions """
 # color confidence filter
 
 class LogOddFilter:
@@ -620,19 +623,19 @@ class MemROI:
         self._clamp() # Clamp the ROI to be within the frame
 
     def reset(self)->None:
-        """
-        @description: Reset the ROI to the frame.
-        @param       {*} self:
-        @return      {*} None
-        """
+#        """
+#        @description: Reset the ROI to the frame.
+#        @param       {*} self:
+#        @return      {*} None
+#        """
         self.roi = self.frame_params
 
     def get_roi(self)->list:
-        """
-        @description: Get the ROI.
-        @param       {*} self:
-        @return      {list} The ROI [x0, y0, w, h]
-        """
+#        """
+#        @description: Get the ROI.
+#        @param       {*} self:
+#        @return      {list} The ROI [x0, y0, w, h]
+#        """
         return [math.ceil(value)+1 for value in self.roi]
 
 # determine the shape of a detected goal
@@ -743,13 +746,13 @@ class ShapeDetector:
                         overlap_circle += 1
                     if self.img_square.get_pixel(j, i) == 1:
                         overlap_square += 1
-                else:
-                    if self.img_triangle.get_pixel(j, i) == 1:
-                        overlap_triangle -= 1
-                    if self.img_circle.get_pixel(j, i) == 1:
-                        overlap_circle -= 1
-                    if self.img_square.get_pixel(j, i) == 1:
-                        overlap_square -= 1
+#                else:
+#                    if self.img_triangle.get_pixel(j, i) == 1:
+#                        overlap_triangle -= 1
+#                    if self.img_circle.get_pixel(j, i) == 1:
+#                        overlap_circle -= 1
+#                    if self.img_square.get_pixel(j, i) == 1:
+#                        overlap_square -= 1
 
 
         print("Overlap Triangle:", overlap_triangle/self.tot_tri, "Overlap Circle:", overlap_circle/self.tot_cir, "Overlap Square:", overlap_square/self.tot_squ)
@@ -761,6 +764,10 @@ class ShapeDetector:
             return "square"
         else:
             return "circle"
+#            corner_count = sum(1 for i in range(self.gridsize) for j in range(self.gridsize) if mean_pooled_img.get_pixel(j, i) == 1)
+#            if corner_count >= 3:
+#                return "square"
+#            return "not" #should be circle
 
     def extract_valid_roi(self, img, blob, current_thresholds, min_edge_distance=0):
         """ Extracts and validates the ROI from the given blob based on minimum distance to the edge """
@@ -796,7 +803,7 @@ class CurBLOB:
         initial_blob,
         norm_level: int = NORM_LEVEL,
         feature_dist_threshold: int = 400,
-        window_size=2,
+        window_size=3,
         blob_id=0,
     ) -> None:
         """
@@ -1164,7 +1171,7 @@ class GoalTracker(Tracker):
         self.extra_fb3 = sensor.alloc_extra_fb(sensor.width(), sensor.height(), sensor.RGB565)
         self.IR_LED = Pin(LEDpin, Pin.OUT)
         self.IR_LED.value(0)
-        self.roi = MemROI(ffp=0.03, ffs=0.20, gfp=.5, gfs=0.2)  # The ROI of the blob
+        self.roi = MemROI(ffp=0.01, ffs=0.02, gfp=.3, gfs=0.3)  # The ROI of the blob
         self.tracked_blob = None
         blob, _ = self.find_reference()
         self.tracked_blob = CurBLOB(blob)
@@ -1314,84 +1321,89 @@ class GoalTracker(Tracker):
         # Get an extra frame buffer and take a snapshot
         self.clock.tick()
         ##################################################################
-        self.LED_STATE = True
-#        if self.tracked_blob is not None:
-#            if self.tracked_blob.untracked_frames > 1:
-#                self.LED_STATE = not self.LED_STATE
-#            elif self.tracked_blob.blob_history is None:
-#                self.LED_STATE = not self.LED_STATE
+        if False:
+            self.LED_STATE = True
+    #        if self.tracked_blob is not None:
+    #            if self.tracked_blob.untracked_frames > 1:
+    #                self.LED_STATE = not self.LED_STATE
+    #            elif self.tracked_blob.blob_history is None:
+    #                self.LED_STATE = not self.LED_STATE
 
-#        else:
-#            self.LED_STATE = not self.LED_STATE
-#        print("no")
-#        self.sensor_sleep(self.time_last_snapshot)
-        self.IR_LED.value(not self.LED_STATE)
-        sensor.skip_frames(1)
-        while(not sensor.get_frame_available()):
-            pass
-#        time.sleep_us(20)
+    #        else:
+    #            self.LED_STATE = not self.LED_STATE
+    #        print("no")
+    #        self.sensor_sleep(self.time_last_snapshot)
+            self.IR_LED.value(not self.LED_STATE)
+            sensor.skip_frames(1)
+            while(not sensor.get_frame_available()):
+                pass
+    #        time.sleep_us(20)
 
-#        self.time_last_snapshot = time.time_ns()   # wait for the sensor to capture a new image
+    #        self.time_last_snapshot = time.time_ns()   # wait for the sensor to capture a new image
 
-#        self.sensor_sleep(self.time_last_snapshot)
-        self.extra_fb.replace(sensor.snapshot())
-        self.time_last_snapshot = time.time_ns() # wait for the sensor to capture a new image
-        ###################################################################
+    #        self.sensor_sleep(self.time_last_snapshot)
+            self.extra_fb.replace(sensor.snapshot())
+            self.time_last_snapshot = time.time_ns() # wait for the sensor to capture a new image
+            ###################################################################
 
-        self.IR_LED.value(self.LED_STATE)
-#        self.sensor_sleep(self.time_last_snapshot)
-#        sensor.skip_frames(1)
+            self.IR_LED.value(self.LED_STATE)
+    #        self.sensor_sleep(self.time_last_snapshot)
+    #        sensor.skip_frames(1)
 
-        while(not sensor.get_frame_available()):
-            pass
-#        time.sleep_us(20)
-#            time.sleep_us(1)
-#        time.sleep_us(int(self.sensor_sleep_time/2))
-
-
-        self.IR_LED.value(not self.LED_STATE)
-        self.extra_fb2.replace(sensor.snapshot())
-        self.time_last_snapshot = time.time_ns()  # wait for the sensor to capture a new image
-        ######################################################################
-#        self.sensor_sleep(self.time_last_snapshot)
-
-#        sensor.skip_frames(1)
-        while(not sensor.get_frame_available()):
-            pass
-#        time.sleep_us(20)
-#            time.sleep_us(1)
-
-        img = sensor.snapshot()
-        self.time_last_snapshot = time.time_ns()  # wait for the sensor to capture a new image
-
-        #IR_LED.value(not LED_STATE)
-
-        #original
-#        self.IR_LED.value(False)
-#        img.sub(self.extra_fb2, reverse=self.LED_STATE)
-#        self.extra_fb3.replace(img)
-#        img.replace(self.extra_fb)
-#        img.sub(self.extra_fb2, reverse=self.LED_STATE)
-#        img.difference(self.extra_fb3)
-#        self.extra_fb2.replace(img)
-#        img.replace(self.extra_fb3)
-#        img.sub(self.extra_fb2, reverse=self.LED_STATE)
+            while(not sensor.get_frame_available()):
+                pass
+    #        time.sleep_us(20)
+    #            time.sleep_us(1)
+    #        time.sleep_us(int(self.sensor_sleep_time/2))
 
 
+            self.IR_LED.value(not self.LED_STATE)
+            self.extra_fb2.replace(sensor.snapshot())
+            self.time_last_snapshot = time.time_ns()  # wait for the sensor to capture a new image
+            ######################################################################
+    #        self.sensor_sleep(self.time_last_snapshot)
 
-        self.IR_LED.value(False)
-        img.difference(self.extra_fb2, reverse=self.LED_STATE)
-        self.extra_fb3.replace(img)
-        img.replace(self.extra_fb)
-        img.sub(self.extra_fb2, reverse=self.LED_STATE)
-        img.difference(self.extra_fb3)
-        self.extra_fb2.replace(img)
-        img.replace(self.extra_fb3)
-        img.difference(self.extra_fb2, reverse=self.LED_STATE)
-        # Remove the edge noises
+    #        sensor.skip_frames(1)
+            while(not sensor.get_frame_available()):
+                pass
+    #        time.sleep_us(20)
+    #            time.sleep_us(1)
+
+            img = sensor.snapshot()
+            self.time_last_snapshot = time.time_ns()  # wait for the sensor to capture a new image
+
+            #IR_LED.value(not LED_STATE)
+
+            #original
+    #        self.IR_LED.value(False)
+    #        img.sub(self.extra_fb2, reverse=self.LED_STATE)
+    #        self.extra_fb3.replace(img)
+    #        img.replace(self.extra_fb)
+    #        img.sub(self.extra_fb2, reverse=self.LED_STATE)
+    #        img.difference(self.extra_fb3)
+    #        self.extra_fb2.replace(img)
+    #        img.replace(self.extra_fb3)
+    #        img.sub(self.extra_fb2, reverse=self.LED_STATE)
 
 
-        img.negate()
+
+            self.IR_LED.value(False)
+            img.difference(self.extra_fb2, reverse=self.LED_STATE)
+            self.extra_fb3.replace(img)
+            img.replace(self.extra_fb)
+            img.sub(self.extra_fb2, reverse=self.LED_STATE)
+            img.difference(self.extra_fb3)
+            self.extra_fb2.replace(img)
+            img.replace(self.extra_fb3)
+            img.difference(self.extra_fb2, reverse=self.LED_STATE)
+            # Remove the edge noises
+
+
+            img.negate()
+        else:
+            self.LED_STATE = True
+            img = sensor.snapshot()
+
         list_of_blob = img.find_blobs(
             self.current_thresholds,
             area_threshold=10,
@@ -1433,10 +1445,10 @@ class GoalTracker(Tracker):
         omv.disable_fb(False)
         big_blobs=[]
         for blob in list_of_blob:
-            if blob.area() > 50 and line_length(blob.minor_axis_line())> 10:
-                if self.tracked_blob != None and self.num_blob_hist > 5:
-                    big_blobs.append(blob)
-                else:
+            if blob.area() > 20 and line_length(blob.minor_axis_line())> 5:
+#                if self.tracked_blob != None and self.num_blob_hist > 5:
+#                    big_blobs.append(blob)
+#                else:
                     roi_img, roi = self.shape_detector.extract_valid_roi(img, blob, self.current_thresholds)
                     if roi_img:
                         detected_shape = self.shape_detector.detect_shape(roi_img)
@@ -1489,13 +1501,13 @@ def line_length(coords):
     return math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
 
 
-""" Sensor initialization based on the object to track: 0 for balloon and 1 for goal """
+#""" Sensor initialization based on the object to track: 0 for balloon and 1 for goal """
 def init_sensor_target(tracking_type:int, framesize=sensor.HQVGA, windowsize=None) -> None:
-    """ Initialize sensors by updating the registers
-        for the two different purposes
-        @param       {int} tracking_type: 0 for balloons and 1 for goals
-        @return      {*} None
-    """
+#    """ Initialize sensors by updating the registers
+#        for the two different purposes
+#        @param       {int} tracking_type: 0 for balloons and 1 for goals
+#        @return      {*} None
+#    """
     if tracking_type == 1:
         # goal detection sensor setup
         sensor.reset()
@@ -1504,7 +1516,7 @@ def init_sensor_target(tracking_type:int, framesize=sensor.HQVGA, windowsize=Non
         sensor.__write_reg(0xfe, 0b00000000) # change to registers at page 0
         sensor.__write_reg(0x80, 0b01111110) # [7] reserved, [6] gamma enable, [5] CC enable,
         sensor.__write_reg(0x03, 0b00000011) # high bits of exposure control
-        sensor.__write_reg(0x04, 0b11111000) # low bits of exposure control
+        sensor.__write_reg(0x04, 0b11000000) # low bits of exposure control
         sensor.set_pixformat(sensor.RGB565)
         sensor.set_framesize(framesize)
         if ADVANCED_SENSOR_SETUP:
@@ -1668,8 +1680,8 @@ def IBus_message(message_arr_to_send):
 
 
 def mode_initialization(input_mode, mode, grid=None, detectors=None):
-    """ Switching between blinking goal tracker and balloon tracker
-    """
+#    """ Switching between blinking goal tracker and balloon tracker
+#    """
     if mode == input_mode:
         print("already in the mode")
         return None
@@ -1683,7 +1695,7 @@ def mode_initialization(input_mode, mode, grid=None, detectors=None):
             thresholds = TARGET_COLOR
             init_sensor_target(tracking_type=1)
             # Find reference
-            tracker = GoalTracker(thresholds, clock, max_untracked_frames = 5, sensor_sleep_time=WAIT_TIME_US)
+            tracker = GoalTracker(thresholds, clock, max_untracked_frames = 30, sensor_sleep_time=WAIT_TIME_US)
             print("Goal mode!")
         else:
             raise ValueError("Invalid mode selection")
@@ -1692,9 +1704,9 @@ def mode_initialization(input_mode, mode, grid=None, detectors=None):
 
 
 if __name__ == "__main__":
-    """ Necessary for both modes """
+#    """ Necessary for both modes """
     clock = time.clock()
-    mode = 0 # 0 for balloon detection and 1 for goal
+    mode = 1 # 0 for balloon detection and 1 for goal
 
     # Initialize inter-board communication
     # time of flight sensor initialization
@@ -1734,7 +1746,7 @@ if __name__ == "__main__":
     # Initialize UART
     uart = UART("LP1", baudrate= 115200, timeout_char=10) # (TX, RX) = (P1, P0) = (PB14, PB15) = "LP1"
 
-    """ Main loop """
+#    """ Main loop """
     while True:
         clock.tick()
         if mode == 1:
@@ -1758,7 +1770,7 @@ if __name__ == "__main__":
                 y_value = int(feature_vec[1] + feature_vec[3]/2)
                 w_value = int(feature_vec[2])
                 h_value = int(feature_vec[3])
-                msg = IBus_message([flag, x_roi, y_roi, w_roi, h_roi,
+                msg = IBus_message([flag, x_value, y_roi, w_roi, h_roi,
                                     x_value, y_value, w_value, h_value, dis])
             else:
                 msg = IBus_message([flag, 0, 0, 0, 0, 0, 0, 0, 0, dis])
@@ -1783,6 +1795,12 @@ if __name__ == "__main__":
                 if res:
                     mode, tracker = res
             elif uart_input[-1] == 0x80 and mode == 0:
+                TARGET_COLOR = TARGET_ORANGE
+                res = mode_initialization(1, mode)
+                if res:
+                    mode, tracker = res
+            elif uart_input[-1] == 0x81 and mode == 0:
+                TARGET_COLOR = TARGET_YELLOW
                 res = mode_initialization(1, mode)
                 if res:
                     mode, tracker = res
