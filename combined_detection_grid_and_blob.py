@@ -69,7 +69,7 @@ FRAME_PARAMS = [0, 0, 240, 160] # Upper left corner x, y, width, height
 frame_rate = 80 # target framerate that is a lie
 #(33, 89, -10, 30, -16, 35)]#[(54, 89, -60, 20, 0, 50)]#(48, 100, -44, -14, 30, 61)]#[(54, 100, -56, -5, 11, 70), (0, 100, -78, -19, 23, 61)]#[(49, 97, -45, -6, -16, 60),(39, 56, -12, 15, 48, 63), (39, 61, -19, 1, 45, 64), (20, 61, -34, 57, -25, 57)] # orange, green
 TARGET_ORANGE = [(13, 90, 29, 51, 20, 50)] #(12, 87, -9, 62, 15, 50)
-TARGET_COLOR2 = [(12, 87, -9, 62, 15, 50)]
+TARGET_COLOR2 = [(12, 87, 20, 62, 15, 50)]
 TARGET_YELLOW = [(38, 92, -25, -5, 22, 50)]
 TARGET_COLOR = TARGET_ORANGE
 WAIT_TIME_US = 1000000//frame_rate
@@ -1471,19 +1471,19 @@ class GoalTracker(Tracker):
                     roi_img, roi = self.shape_detector.extract_valid_roi(img, blob, self.current_thresholds)
                     if roi_img:
 
-                        mean_pooled_img = self.shape_detector.downsample_and_average(roi_img)
-                        gridsize = 9
-            #             Visually represent the data (example code)
-                        scale_x = roi[2] / gridsize
-                        scale_y = roi[3] / gridsize
-                        for i in range(gridsize):
-                            for j in range(gridsize):
-                                gray_value = mean_pooled_img.get_pixel(j, i) *255
-                                rect_x = roi[0] + j * int(scale_x)
-                                rect_y = roi[1] + i * int(scale_y)
-                                rect_width = max(int(scale_x), 1)
-                                rect_height = max(int(scale_y), 1)
-                                img.draw_rectangle(rect_x, rect_y, rect_width, rect_height, color=(gray_value, gray_value, gray_value), fill=True)
+#                        mean_pooled_img = self.shape_detector.downsample_and_average(roi_img)
+#                        gridsize = 9
+#            #             Visually represent the data (example code)
+#                        scale_x = roi[2] / gridsize
+#                        scale_y = roi[3] / gridsize
+#                        for i in range(gridsize):
+#                            for j in range(gridsize):
+#                                gray_value = mean_pooled_img.get_pixel(j, i) *255
+#                                rect_x = roi[0] + j * int(scale_x)
+#                                rect_y = roi[1] + i * int(scale_y)
+#                                rect_width = max(int(scale_x), 1)
+#                                rect_height = max(int(scale_y), 1)
+#                                img.draw_rectangle(rect_x, rect_y, rect_width, rect_height, color=(gray_value, gray_value, gray_value), fill=True)
 
                         detected_shape = self.shape_detector.detect_shape(roi_img)
                         if detected_shape != "triangle" and detected_shape != "not":
