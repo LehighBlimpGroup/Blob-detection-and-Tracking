@@ -12,8 +12,7 @@ import random
 
 # manual white balance - to be used with *get_gains.py* in the repository
 # - see RGB gain readings in the console
-R_GAIN, G_GAIN, B_GAIN = [78, 62, 91]
-
+R_GAIN, G_GAIN, B_GAIN = [87, 66, 96]
 """ MACROS for balloon detection """
 # Grid setup
 N_ROWS = 10
@@ -21,7 +20,7 @@ N_COLS = 15
 
 # Probablistic filter for detection
 FILTER = True
-L_MAX = 3
+L_MAX = 5
 L_MIN = -2
 
 # print the stats at the upper left corner
@@ -42,19 +41,19 @@ COLOR_GREEN_MEAN, COLOR_GREEN_INV_COV =  [-21.36122125297383, 13.203013481363996
 COLOR_BLUE_MEAN, COLOR_BLUE_INV_COV =  [35.0, -62.7727501256913] ,  [[0.036586653505946004, 0.03165130899101438], [0.03165130899101438, 0.033147054965256606]]
 
 COLOR_RED_MEAN, COLOR_RED_INV_COV =  [64.13117283950618, 34.8804012345679] ,  [[0.07214081987685156, -0.10688194359795826], [-0.10688194359795827, 0.21169293726607114]]
-COLOR_PURPLE_DECAY = 3.0
+COLOR_PURPLE_DECAY = 4.0
 COLOR_GREEN_DECAY = 1.0
 COLOR_BLUE_DECAY = 5.0  # Less sensitive for lower values
 
 # allowed standard deviation range for a color detection
 # lower bound filters out uniform colors such as a light source
 # higher bound filters out messy background/environment
-STD_RANGE_PURPLE = [10, 30]
+STD_RANGE_PURPLE = [5, 30]
 STD_RANGE_GREEN = [10, 30]
 STD_RANGE_BLUE = [5, 30]
 
 # balloon tracker
-MAX_LOST_FRAME = 10 # maximum number of frames without detection that is still tracked
+MAX_LOST_FRAME = 20 # maximum number of frames without detection that is still tracked
 MOMENTUM = 0.0 # keep the tracking result move if no detection is given
 KERNEL_SIZE = 5
 
@@ -147,7 +146,7 @@ class ColorDetector:
     def _distance(self, point, std):
         (l, a, b) = point
         if self.mahalanobis:
-            if l > 80 or l < 5:
+            if l > 80:
                 d2 = 10
             else:
                 d2 = self._distance_mahalanobis((a, b))
@@ -179,7 +178,7 @@ class ColorDetector:
                break
 
         # Too much lightening
-        if not 10  < l < 60:  #fixme magic numbers
+        if not 8  < l < 60:  #fixme magic numbers
             d = 0.0
 
         return d
