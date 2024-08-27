@@ -12,7 +12,7 @@ import random
 
 # manual white balance - to be used with *get_gains.py* in the repository
 # - see RGB gain readings in the console
-R_GAIN, G_GAIN, B_GAIN = [80, 63, 98]
+R_GAIN, G_GAIN, B_GAIN = [64, 64, 65]
 """ MACROS for balloon detection """
 # Grid setup
 N_ROWS = 10
@@ -31,19 +31,17 @@ COMBINE_GREEN_AND_PURPLE = True
 
 # whether remove blue color from purple color
 SEPARATE_BLUE_AND_PURPLE = False
-PURPLE_OVER_BLUE_CONFIDENCE = 1.5
+PURPLE_OVER_BLUE_CONFIDENCE = 1.3
 
 # Color distribution
-COLOR_PURPLE_MEAN, COLOR_PURPLE_INV_COV =  [44.513600737667126, -46.481788842784695] ,  [[0.041864469123940276, 0.03829783053557951], [0.03829783053557951, 0.04840839523033756]]
-
-COLOR_GREEN_MEAN, COLOR_GREEN_INV_COV =  [-21.36122125297383, 13.203013481363996] ,  [[0.026051687559465967, 0.02797671970086942], [0.027976719700869422, 0.03798820733259319]]
-
-COLOR_BLUE_MEAN, COLOR_BLUE_INV_COV =  [35.0, -62.7727501256913] ,  [[0.036586653505946004, 0.03165130899101438], [0.03165130899101438, 0.033147054965256606]]
+COLOR_PURPLE_MEAN, COLOR_PURPLE_INV_COV =  [39.553705905667854, 36.58858501783591] ,  [[0.03545854942510525, -0.04001811886607807], [-0.040018118866078076, 0.08474281656293281]]
+COLOR_GREEN_MEAN, COLOR_GREEN_INV_COV =  [64.09035277177826, 43.98272138228942] ,  [[0.05441617410245659, -0.050729475202205214], [-0.050729475202205214, 0.06739139140738871]]
+COLOR_BLUE_MEAN, COLOR_BLUE_INV_COV =  [18.785423037716615, -10.053007135575942] ,  [[3.8293434533537547, -1.8962746323606503], [-1.8962746323606503, 17.773486435199775]]
 
 COLOR_RED_MEAN, COLOR_RED_INV_COV =  [64.13117283950618, 34.8804012345679] ,  [[0.07214081987685156, -0.10688194359795826], [-0.10688194359795827, 0.21169293726607114]]
-COLOR_PURPLE_DECAY = 4.0
-COLOR_GREEN_DECAY = 1.0
-COLOR_BLUE_DECAY = 5.0  # Less sensitive for lower values
+COLOR_PURPLE_DECAY = 7.0
+COLOR_GREEN_DECAY = 4.0
+COLOR_BLUE_DECAY = 7.0  # Less sensitive for lower values
 
 # allowed standard deviation range for a color detection
 # lower bound filters out uniform colors such as a light source
@@ -55,7 +53,7 @@ STD_RANGE_BLUE = [5, 30]
 # balloon tracker
 MAX_LOST_FRAME = 20 # maximum number of frames without detection that is still tracked
 MOMENTUM = 0.0 # keep the tracking result move if no detection is given
-KERNEL_SIZE = 5
+KERNEL_SIZE = 3
 
 #""" MACROS for goal detection """
 NORM_LEVEL = 2  # Default to use L2 norm, change to L1 to reduce computation
@@ -68,10 +66,10 @@ FRAME_PARAMS = [0, 0, 240, 160] # Upper left corner x, y, width, height
 
 frame_rate = 80 # target framerate that is a lie
 #(33, 89, -10, 30, -16, 35)]#[(54, 89, -60, 20, 0, 50)]#(48, 100, -44, -14, 30, 61)]#[(54, 100, -56, -5, 11, 70), (0, 100, -78, -19, 23, 61)]#[(49, 97, -45, -6, -16, 60),(39, 56, -12, 15, 48, 63), (39, 61, -19, 1, 45, 64), (20, 61, -34, 57, -25, 57)] # orange, green
-TARGET_ORANGE = [(13, 90, 29, 51, 20, 50)] #(12, 87, -9, 62, 15, 50)
-TARGET_COLOR2 = [(12, 87, 20, 62, 15, 50)]
-TARGET_YELLOW = [(38, 92, -25, -5, 22, 50)]
-TARGET_COLOR = TARGET_ORANGE
+TARGET_ORANGE = [(39, 58, 4, 24, 12, 41)] #(12, 87, -9, 62, 15, 50)
+TARGET_COLOR2 = [(56, 76, -36, -15, 29, 58)]
+TARGET_YELLOW = [(38, 83, -31, -12, 19, 47)]#[(38, 92, -25, -5, 22, 50)]
+TARGET_COLOR = TARGET_YELLOW
 WAIT_TIME_US = 1000000//frame_rate
 
 SATURATION = 128 # global saturation for goal detection mode - not affected by ADVANCED_SENSOR_SETUP, defeult 64
@@ -344,13 +342,21 @@ class Grid:
 
             total = 0
             # Neighbors:
+            skip_count = 0
             for k1 in range(KERNEL_SIZE):
                 for k2 in range(KERNEL_SIZE):
                     r, c = row - KERNEL_SIZE//2 + k1, col - KERNEL_SIZE//2 + k2  # Row and column
                     if r < 0 or r > self.num_rows-1 or c < 0 or c > self.num_cols-1:
+#                        skip_count += 0.5
                         continue
                     mk = self._matrix_to_index(r, c)
-                    total += metric[mk]
+                    if r == row and c == col:
+                        total += 3.0*metric[mk]
+                    else:
+                        total += metric[mk]
+
+#            counted_average = total/(KERNEL_SIZE**2 - skip_count)
+#            total = counted_average * KERNEL_SIZE**2
 
             if total > max_val:
                 max_row = row
@@ -1545,12 +1551,12 @@ def init_sensor_target(tracking_type:int, framesize=sensor.HQVGA, windowsize=Non
     if tracking_type == 1:
         # goal detection sensor setup
         sensor.reset()
-        sensor.set_auto_exposure(False)
+        sensor.set_auto_exposure(True)
         sensor.ioctl(sensor.IOCTL_SET_FOV_WIDE, True)
         sensor.__write_reg(0xfe, 0b00000000) # change to registers at page 0
         sensor.__write_reg(0x80, 0b01111110) # [7] reserved, [6] gamma enable, [5] CC enable,
-        sensor.__write_reg(0x03, 0b00000011) # high bits of exposure control
-        sensor.__write_reg(0x04, 0b11000000) # low bits of exposure control
+        # sensor.__write_reg(0x03, 0b00000011) # high bits of exposure control
+        # sensor.__write_reg(0x04, 0b11000000) # low bits of exposure control
         sensor.set_pixformat(sensor.RGB565)
         sensor.set_framesize(framesize)
         if ADVANCED_SENSOR_SETUP:
