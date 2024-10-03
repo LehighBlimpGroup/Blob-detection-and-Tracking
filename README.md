@@ -1,5 +1,5 @@
 # Blob-detection-and-Tracking
-# TODO: Outdated since Spring 2024
+# TODO: Update before Nov 2024
 Blob detection, tracking and serial communication to esp32 through IBus protocol using an OpenMV compatible edge camera device. Currently it has two modes: 
 1. Pure color-based blob detection and tracking, which requires a fine-tuned threshold in LAB space. Look at [OpenMV documentation on the function find_blobs](https://docs.openmv.io/library/omv.image.html#image.Image.find_blobs) for detailed reference.
 2. IR blinking-based detection for retro-reflective surfaces using a IR-filter-free lens. The camera captures two consecutive images with LED off and on, respectively, then compute pixel-wise difference to highlight the reflective surfaces in the environment. Refer to [the initial tests on the reflective solution for more details](https://github.com/LehighBlimpGroup/Reflective_AimBot).
