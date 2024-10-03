@@ -1,6 +1,6 @@
 NICLA = 1
 OPENMV = 2
-board = OPENMV
+board = NICLA
 
 import time
 import sensor
@@ -1758,9 +1758,9 @@ def init_sensor_target(tracking_type:int, framesize=FRAME_SIZE, windowsize=None)
 
             sensor.__write_reg(0xfe, 0)     # change to registers at page 0
                                             # manually set RGB gains to fix color/white balance
-            sensor.__write_reg(0xad, R_GAIN)    # R gain ratio
-            sensor.__write_reg(0xae, G_GAIN)    # G gain ratio
-            sensor.__write_reg(0xaf, B_GAIN)    # B gain ratio
+            sensor.__write_reg(0xad, int(R_GAIN))    # R gain ratio
+            sensor.__write_reg(0xae, int(G_GAIN))    # G gain ratio
+            sensor.__write_reg(0xaf, int(B_GAIN))    # B gain ratio
             sensor.set_auto_exposure(True)
             # sensor.__write_reg(0xb2, 255)   # post-gain, default 64
             sensor.skip_frames(2)
