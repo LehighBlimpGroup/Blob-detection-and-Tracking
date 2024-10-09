@@ -1,8 +1,10 @@
 NICLA = 1
 OPENMV = 2
-board = NICLA
+board = OPENMV
 
 import time
+import micropython
+import array
 import sensor
 if board == NICLA:
     from pyb import UART, LED
@@ -19,11 +21,11 @@ import asyncio
 
 # night mode:
 if board == OPENMV:
-    sensor.ioctl(sensor.IOCTL_SET_NIGHT_MODE, False)
+    sensor.ioctl(sensor.IOCTL_SET_NIGHT_MODE, True)
 
 # manual white balance - to be used with *get_gains.py* in the repository
 # - see RGB gain readings in the console
-R_GAIN, G_GAIN, B_GAIN = [61.56189, 60.206, 65.48315] #[64, 65, 83]
+R_GAIN, G_GAIN, B_GAIN = [61.45235, 60.206, 65.44147] #[64, 65, 83]
 
 """ MACROS for balloon detection """
 # Grid setup
@@ -39,7 +41,7 @@ L_MIN = -2
 PRINT_CORNER = False
 
 # whether combine detction of green and purple as target balloons
-COMBINE_TARGETS = False
+COMBINE_TARGETS = True
 
 # Color distribution - From the data analysis
 COLOR_DATA = {
@@ -54,14 +56,14 @@ COLOR_DATA = {
 # [1]: for filtering out uniform colors such as a light source, higher -> less positive detection
 # [2]: for filtering out messy background/environment, lower -> less positive detection
 COLOR_SENSITIVITY = {
-    "purple": [6.0, 5.0, 30.0],
-    "green": [6.0, 5.0, 30.0],
+    "purple": [6.0, 6.0, 30.0],
+    "green": [3.0, 5.0, 30.0],
     "blue": [5.0, 5.0, 30.0],
     "red": [2.0, 5.0, 15.0]
 }
 
 # range of the L channel values that guarantee valid detection
-L_RANGE = [8, 80]
+L_RANGE = [5, 70]
 
 # the minimum value of the maximum cell that we consider a successful detection
 COLOR_CONFIDENCE = 0.32
@@ -88,6 +90,15 @@ MAX_LOST_FRAME_GOAL = 20   # maximum number of frames without a positive goal de
 MOMENTUM = 0.0 # keep the tracking result move if the detection is momentarily lost
 KERNEL_SIZE = 5 # a n x n kernel that summarizes the possibility scores inside to give the most
                 # approachable detection, for target balloon detections only
+KERNEL_JUMP = 2 # determine how dense the kernel count is for computing the action
+                # 1 for counting every possible kernel, 2 for skipping every other cell, 3 for every two, etc.
+KERNEL_CENTER_EMPH = 3 # how much weight we want the center of the kernel to count
+
+# Performance profiling
+PROFILING = False
+CRAZY_RANDOM_OPTIMIZATION = True
+OPTIMIZATION_LEVEL = 0.5
+RANDOM_DACAY = 0.4
 
 # MACROS for goal detection
 NORM_LEVEL = 2  # Default to use L2 norm, change to L1 to reduce computation
@@ -97,7 +108,7 @@ FF_SIZE = 0.0 # The forgetting factor for the size
 GF_POSITION = 0.3 # The gain factor for the position
 GF_SIZE = 0.3 # The gain factor for the size
 
-FRAME_SIZE = sensor.HQVGA
+FRAME_SIZE = sensor.QVGA
 FRAME_PARAMS = None
 if FRAME_SIZE == sensor.VGA:
     FRAME_PARAMS = [0, 0, 640, 480] # Upper left corner x, y, width, height
@@ -155,8 +166,52 @@ class LogOddFilter:
 
     def probabilities(self):
         for i, l in enumerate(self.L):
-                self.P[i] = 1. / (1. + math.exp(-l))
+            self.P[i] = 1. / (1. + math.exp(-l))
         return self.P
+
+
+class MahalanobisDistanceCalculator:
+    def __init__(self, mu, sigma_inv):
+        self.SCALE = 1<<10          # Scaling factor for mu and point
+        # Convert mu to scaled integers
+        self.mu_int = array.array('i', [int(x * self.SCALE) for x in mu])
+        # Flatten sigma_inv to a 1D array and scale to integers
+        self.sigma_inv_int_flat = array.array('i', [int(x * self.SCALE) for row in sigma_inv for x in row])
+
+    @micropython.viper
+    def _distance_mahalanobis(self, point_int) -> int:
+        # Assuming dim = 2
+        SCALE = int(self.SCALE)
+
+        # Cast pointers
+        point_int_ptr32 = ptr32(point_int)
+        mu_int_ptr32 = ptr32(self.mu_int)
+        sigma_inv_int_flat_ptr32 = ptr32(self.sigma_inv_int_flat)
+
+        # Compute diff_int = point_int - mu_int
+        diff_0 = int(point_int_ptr32[0]) - int(mu_int_ptr32[0])  # Scaled by SCALE
+        diff_1 = int(point_int_ptr32[1]) - int(mu_int_ptr32[1])  # Scaled by SCALE
+
+        # Access sigma_inv_int elements (flattened)
+        sigma00 = int(sigma_inv_int_flat_ptr32[0])
+        sigma01 = int(sigma_inv_int_flat_ptr32[1])
+        sigma10 = int(sigma_inv_int_flat_ptr32[2])
+        sigma11 = int(sigma_inv_int_flat_ptr32[3])
+
+        # Compute intermediate = sigma_inv_int * diff_int
+        # Each multiplication result is scaled by SCALE_SIGMA * SCALE
+        # Since SCALE_SIGMA == SCALE, we adjust by dividing once by SCALE
+        intermediate_0 = ((sigma00 * diff_0 + sigma01 * diff_1) // SCALE)
+        intermediate_1 = ((sigma10 * diff_0 + sigma11 * diff_1) // SCALE)
+
+        # Now intermediate is scaled by SCALE
+
+        # Compute mahalanobis_sq = (diff^T * intermediate) // SCALE
+        mahalanobis_sq = (diff_0 * intermediate_0 + diff_1 * intermediate_1) // SCALE
+
+        # The result mahalanobis_sq is scaled by SCALE
+        return int(mahalanobis_sq)  # Return the scaled integer result
+
 
 # color detector based on distance to a line segment on L(AB) color space
 class ColorDetector:
@@ -184,6 +239,7 @@ class ColorDetector:
             self.coefficient = 1 / math.sqrt(2*math.pi) * math.sqrt(sigma_inv[0][0] * sigma_inv[1][1] - sigma_inv[1][0] * sigma_inv[0][1])
             print("det", self.coefficient)
             self.decay = decay
+            self.calculator = MahalanobisDistanceCalculator(mu, sigma_inv)
 
         self.metric = [0. for _ in range(N_COLS*N_ROWS)]
         # Filter
@@ -196,20 +252,32 @@ class ColorDetector:
         # outputs the distance from the pixel to the reference color distribution
         l, a, b = point
         if self.mahalanobis:
-            d2 = self._distance_mahalanobis((a, b))
-
-            # Clamp max distance
-            # max_num_std = 5
-            # d = d if d < max_num_std else max_num_std
-
-            # d = 1 - d / max_num_std
-
-            # Compute the coefficient
-            coefficient = 1. #/ (2 * math.pi * math.sqrt(self.determinant))
-            # Compute the PDF value
+            d2 = self._distance_mahalanobis_viper((a, b))
             # NOTE: the name is a bit misleading
             #    -- the d here is actually a probability instead of a distance
-            d = math.exp(-d2 / self.decay)
+            # use look-up linear functions for maximum optimization of the probability calculation
+            val = d2 / self.decay
+            if val < 0.25:
+                d = -0.9*val + 1
+            elif val < 0.5:
+                d = -0.7*val + 0.953
+            elif val < 0.8:
+                d = -0.5*val + 0.852
+            elif val < 1.2:
+                d = -0.38*val + 0.752
+            elif val < 1.8:
+                d = -0.23*val + 0.575
+            elif val < 3.0:
+                d = -0.1*val + 0.34
+            elif val < 5.2:
+                d = -0.02*val + 0.105
+            elif val < 10.0:
+                d = -0.002*val + 0.021
+            elif val < 20:
+                d = -0.001*val + 0.015
+            else:
+                d = 0.0
+            # d = math.exp(-d2 / self.decay)
         else:
             d = self._distance_point_to_segment((a, b), self.line_ref)
 
@@ -231,6 +299,7 @@ class ColorDetector:
 
         return d
 
+    @micropython.native
     def _distance_mahalanobis(self, point):
         # Compute the Mahalanobis distance between a point and a distribution. It uses
         # Parameters:
@@ -245,13 +314,24 @@ class ColorDetector:
         # mahalanobis_dist = mahalanobis_sq ** 0.5
         return mahalanobis_sq
 
+    def _distance_mahalanobis_viper(self, point):
+        point_int = array.array('i', [int(x * self.calculator.SCALE) for x in point])
+        mahalanobis_sq_int = self.calculator._distance_mahalanobis(point_int)
+        mahalanobis_sq = mahalanobis_sq_int / self.calculator.SCALE
+        return mahalanobis_sq
+
+
     def _dot_product(self, a, b):
         """Compute the dot product of two vectors."""
         return sum(x * y for x, y in zip(a, b))
 
-    def update_cell(self, row, col, point, std):
-        d = self._distance(point, std)
-        self.metric[row * N_COLS + col] = d
+    def update_cell(self, row, col, point, std, decay=False):
+        if decay:
+            self.metric[row * N_COLS + col] *= RANDOM_DACAY
+            d = self.metric[row * N_COLS + col]
+        else:
+            d = self._distance(point, std)
+            self.metric[row * N_COLS + col] = d
         return d
 
     def update_filter(self):
@@ -289,6 +369,7 @@ class Grid:
         self.num_cols = num_cols
         self.cell_width = int(img_width / num_cols)
         self.cell_height = int(img_height / num_rows)
+        self._kernel_jump_count = 0
 
     @micropython.native
     def count(self, img, detectors):
@@ -308,21 +389,46 @@ class Grid:
                 roi = (col_start, row_start) + cell_area  # Avoid recalculating cell_width and cell_height
 
                 # Calculate the mean and variance of the ROI
-                s = img.get_statistics(roi=roi)
+                if CRAZY_RANDOM_OPTIMIZATION:
+                    if random.random() > OPTIMIZATION_LEVEL:
+                        do_cell_update = True
+                        s = img.get_statistics(roi=roi)
 
-                # Cache the statistical values
-                l_mean = s.l_mean()
-                a_mean = s.a_mean()
-                b_mean = s.b_mean()
-                l_stdev = s.l_stdev()
-                a_stdev = s.a_stdev()
-                b_stdev = s.b_stdev()
+                        # Cache the statistical values
+                        l_mean = s.l_mean()
+                        a_mean = s.a_mean()
+                        b_mean = s.b_mean()
+                        l_stdev = s.l_stdev()
+                        a_stdev = s.a_stdev()
+                        b_stdev = s.b_stdev()
+                    else:
+                        do_cell_update = False
+                else:
+                    do_cell_update = True
+                    if PROFILING:
+                        start_time = time.ticks_us()
+                    s = img.get_statistics(roi=roi)
+                    if PROFILING:
+                        print("Get cell statistics: {} us".format(time.ticks_diff(time.ticks_us(), start_time)))
+
+                    # Cache the statistical values
+                    l_mean = s.l_mean()
+                    a_mean = s.a_mean()
+                    b_mean = s.b_mean()
+                    l_stdev = s.l_stdev()
+                    a_stdev = s.a_stdev()
+                    b_stdev = s.b_stdev()
 
                 stats_mean = (l_mean, a_mean, b_mean)
                 stats_stdev = (l_stdev, a_stdev, b_stdev)
 
+                if PROFILING:
+                    start_time = time.ticks_us()
+
                 for detector in detector_values:
-                    detector.update_cell(row, col, stats_mean, stats_stdev)
+                    detector.update_cell(row, col, stats_mean, stats_stdev, not do_cell_update)
+                if PROFILING:
+                    print("Update cells: {} us".format(time.ticks_diff(time.ticks_us(), start_time)))
 
                 if print_corner_row and 4 < col < 8:
                     print((a_mean, b_mean), end=', ')
@@ -367,45 +473,37 @@ class Grid:
         # Compute the variance
         variance = squared_diff_sum / len(nones)
 
-        return mean,variance
+        return mean, variance
 
 
-    def count_column(self, nones, col):
-        col_sum = sum([nones[col + i * self.num_cols] for i in range(self.num_rows)])
-        return col_sum
-
-    def count_row(self, nones, row):
-        row_sum = sum([nones[i + self.num_cols * row] for i in range(self.num_cols)])
-        return row_sum
-
-    def action_differential(self, metric):
-        totalm= sum(metric) if sum(metric)>0 else 1
-        metric = [m / totalm for m in metric]
-
-        # Counting
-        left_cells = sum([self.count_column(metric, i) for i in range(N_COLS//2) ])
-        right_cells = sum([self.count_column(metric, N_COLS-i-1) for i in range(N_COLS//2) ])
-        up_cells =  sum([self.count_row(metric, i) for i in range(N_ROWS//2) ])
-        down_cells = sum([self.count_row(metric, N_ROWS-i-1) for i in range(N_ROWS//2) ])
-
-
-        ux, uy = 0,0
-        # Control action
-        # print(left_cells, right_cells, up_cells, down_cells)
-        ux = int((right_cells - left_cells) * img.width()) // N_COLS
-        uy = -int((up_cells - down_cells) * img.height()) // N_ROWS
-
-        return ux, uy
-
-    def _index_to_matrix(self, i):
+    def _index_to_matrix(self, i:int) -> Tuple[int, int]:
         row = i // self.num_cols
         col = i % self.num_cols
         return row, col
 
 
-    def _matrix_to_index(self, row, col):
+    def _matrix_to_index(self, row: int, col: int) -> int:
         index = row * self.num_cols + col
         return index
+
+
+    #TODO: rewrite the optimized_loop function so that the kernel sweep uses previous values\
+    #QUESTION: is it dynamic programming?
+    def kernel_count(self, metric):
+        num_rows = self.num_rows
+        num_cols = self.num_cols
+        metric_len = len(metric)
+        half_kernel = KERNEL_SIZE // 2
+        max_col = -1
+        max_row = -1
+        max_val = -1
+        same_val_rc = []
+
+        kernel_indices = []
+        for r in range(self._kernel_jump_count, num_rows, KERNEL_JUMP):
+            for c in range(self._kernel_jump_count, num_cols, KERNEL_JUMP):
+                pass
+
 
     @micropython.native
     def optimized_loop(self, metric):
@@ -437,7 +535,7 @@ class Grid:
                     mk = r * num_cols + c
                     val = metric[mk]
                     if dr == 0 and dc == 0:
-                        total += 3 * val
+                        total += KERNEL_CENTER_EMPH * val
                     else:
                         total += val
 
@@ -453,7 +551,11 @@ class Grid:
 
 
     def action(self, metric):
+        if PROFILING:
+            start_time = time.ticks_us()
         max_row, max_col, max_val, same_val_rc = self.optimized_loop(metric)
+        if PROFILING:
+            print("Pooling: {} us".format(time.ticks_diff(time.ticks_us(), start_time)))
         sum_row, sum_col = 0, 0
         for rc in same_val_rc:
             sum_row += rc[0]
@@ -509,7 +611,11 @@ class BalloonTracker:
         self.balloon_color = None
 
     def track(self, img):
+        if PROFILING:
+            start_time = time.ticks_ms()
         self.grid.count(img, detectors)
+        if PROFILING:
+            print("counting total: {} ms".format(time.ticks_diff(time.ticks_ms(), start_time)))
         for color, detector in self.detectors.items():
             metric = detector.metric
 
@@ -1906,8 +2012,8 @@ if __name__ == "__main__":
         else:
             img = sensor.snapshot()
             feature_vector, flag = tracker.track(img)
-        try: dis = 9999
-        except: dis = 9999
+        # try: dis = 9999
+        # except: dis = 9999
 
         if flag & 0b10000000:
             if flag & 0x03:
@@ -1923,13 +2029,13 @@ if __name__ == "__main__":
                 w_value = int(feature_vec[2])
                 h_value = int(feature_vec[3])
                 msg = IBus_message([flag, x_value, y_roi, w_roi, h_roi,
-                                    x_value, y_value, w_value, h_value, dis])
+                                    x_value, y_value, w_value, h_value, 9999])
             else:
-                msg = IBus_message([flag, 0, 0, 0, 0, 0, 0, 0, 0, dis])
+                msg = IBus_message([flag, 0, 0, 0, 0, 0, 0, 0, 0, 9999])
         elif flag & 0b01000000:
             x_roi, y_roi, w_roi, h_roi, x_value, y_value, w_value, h_value, just_zero = feature_vector
             msg = IBus_message([flag, x_roi, y_roi, w_roi, h_roi,
-                                x_value, y_value, w_value, h_value, dis])
+                                x_value, y_value, w_value, h_value, 9999])
         else:
             print("0 flag!")
             assert(flag == 0)
