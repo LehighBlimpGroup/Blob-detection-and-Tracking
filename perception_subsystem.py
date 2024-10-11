@@ -18,14 +18,15 @@ from machine import Pin
 import omv
 import random
 import asyncio
+from ulab import numpy as np
 
 # night mode:
 if board == OPENMV:
-    sensor.ioctl(sensor.IOCTL_SET_NIGHT_MODE, True)
+    sensor.ioctl(sensor.IOCTL_SET_NIGHT_MODE, False)
 
 # manual white balance - to be used with *get_gains.py* in the repository
 # - see RGB gain readings in the console
-R_GAIN, G_GAIN, B_GAIN = [61.45235, 60.206, 65.44147] #[64, 65, 83]
+R_GAIN, G_GAIN, B_GAIN = [62, 60, 66] #[64, 65, 83]
 
 """ MACROS for balloon detection """
 # Grid setup
@@ -34,36 +35,43 @@ N_COLS = 15
 
 # Probablistic filter for detection
 FILTER = True
-L_MAX = 5
-L_MIN = -2
+L_MAX = 10
+L_MIN = -4
 
 # print the stats at the upper left corner - for balloon color data collection
 PRINT_CORNER = False
+PLOT_METRIC = True
 
 # whether combine detction of green and purple as target balloons
 COMBINE_TARGETS = True
 
 # Color distribution - From the data analysis
 COLOR_DATA = {
-    "purple": [[4.471170545328239, -16.870614796804446], [[0.15855489398629719, 0.05720283065804993], [0.05720283065804992, 0.03376612972023393]]],
-    "green": [[-13.581999178981938, 13.811268472906404], [[0.08615183489106178, 0.03362790395200063], [0.03362790395200063, 0.03428058162742023]]],
+    "purple": [[12.81815578465063, -22.79954180985109] ,  [[0.16660980418172636, 0.07742479476144622], [0.0774247947614462, 0.04503710442815662]]],
+    "green": [[-18.423179565383148, 13.264582539077391] ,  [[0.01947907321188221, 0.02231663705037393], [0.02231663705037393, 0.03995214702238352]]],
     "blue": [[18.7854, -10.05301], [[3.8293, -1.8963], [-1.8963, 17.7735]]],
-    "red": [[33.37085050580742, 23.162907455976022], [[0.02737878191466584, -0.03698811861189565], [-0.03698811861189565, 0.06130880336976191]]]
-}
+    "red": [[42.01334903808402, 20.50530035335689] ,  [[0.01419921622178408, -0.010337187414071827], [-0.010337187414071825, 0.016876163913575336]]]
+} # openmv
+# COLOR_DATA = {
+#     "purple": [[5.296204512847267, -16.034955001956437] ,  [[0.06109919151490151, 0.014578097165926314], [0.014578097165926313, 0.01695861889387148]]],
+#     "green": [[-14.603367697594502, 15.553883161512028] ,  [[0.09030608562216992, 0.04070227257445328], [0.04070227257445328, 0.038201932090824356]]],
+#     "blue": [[18.7854, -10.05301], [[3.8293, -1.8963], [-1.8963, 17.7735]]],
+#     "red": [[54.89488372093023, 39.03813953488372] ,  [[0.03884277545995741, -0.04972294704777547], [-0.04972294704777547, 0.08340376032641221]]]
+# } # nicla
 
 # color detection sensitivities:
 # [0]: higher value for more sensitive detection
 # [1]: for filtering out uniform colors such as a light source, higher -> less positive detection
 # [2]: for filtering out messy background/environment, lower -> less positive detection
 COLOR_SENSITIVITY = {
-    "purple": [6.0, 6.0, 30.0],
+    "purple": [2.0, 5.0, 25.0],
     "green": [3.0, 5.0, 30.0],
-    "blue": [5.0, 5.0, 30.0],
-    "red": [2.0, 5.0, 15.0]
+    "blue": [2.0, 5.0, 30.0],
+    "red": [2.0, 5.0, 30.0]
 }
 
 # range of the L channel values that guarantee valid detection
-L_RANGE = [5, 70]
+L_RANGE = [4, 85]
 
 # the minimum value of the maximum cell that we consider a successful detection
 COLOR_CONFIDENCE = 0.32
@@ -88,17 +96,28 @@ MAX_LOST_FRAME_TARGET = 20 # maximum number of frames without a positive balloon
 MAX_LOST_FRAME_GOAL = 20   # maximum number of frames without a positive goal detection
                            # with data of the current detection still reported to the controller
 MOMENTUM = 0.0 # keep the tracking result move if the detection is momentarily lost
+
+# action kernel setup
+FILTER_KERNEL = False #TODO: using LogOdd filter-based kernel
 KERNEL_SIZE = 5 # a n x n kernel that summarizes the possibility scores inside to give the most
                 # approachable detection, for target balloon detections only
-KERNEL_JUMP = 2 # determine how dense the kernel count is for computing the action
-                # 1 for counting every possible kernel, 2 for skipping every other cell, 3 for every two, etc.
+kernel_scale = (KERNEL_SIZE + 1) ** 2
 KERNEL_CENTER_EMPH = 3 # how much weight we want the center of the kernel to count
+kernel_matrix = []
+for i in range(KERNEL_SIZE):
+    kernel_row = []
+    for j in range(KERNEL_SIZE):
+        if i == KERNEL_SIZE // 2 and j == KERNEL_SIZE // 2:
+            kernel_row.append(KERNEL_CENTER_EMPH)
+        else:
+            kernel_row.append(1)
+    kernel_matrix.append(kernel_row)
 
 # Performance profiling
 PROFILING = False
 CRAZY_RANDOM_OPTIMIZATION = True
 OPTIMIZATION_LEVEL = 0.5
-RANDOM_DACAY = 0.4
+RANDOM_DACAY = 0.5*2*OPTIMIZATION_LEVEL
 
 # MACROS for goal detection
 NORM_LEVEL = 2  # Default to use L2 norm, change to L1 to reduce computation
@@ -108,7 +127,7 @@ FF_SIZE = 0.0 # The forgetting factor for the size
 GF_POSITION = 0.3 # The gain factor for the position
 GF_SIZE = 0.3 # The gain factor for the size
 
-FRAME_SIZE = sensor.QVGA
+FRAME_SIZE = sensor.HQVGA
 FRAME_PARAMS = None
 if FRAME_SIZE == sensor.VGA:
     FRAME_PARAMS = [0, 0, 640, 480] # Upper left corner x, y, width, height
@@ -126,7 +145,7 @@ TARGET_YELLOW = [(63, 90, -32, -12, 28, 54)]#[(38, 92, -25, -5, 22, 50)]
 TARGET_COLOR = TARGET_YELLOW
 WAIT_TIME_US = 1000000//frame_rate
 
-SATURATION = 128 # global saturation for goal detection mode - not affected by ADVANCED_SENSOR_SETUP, defeult 64
+SATURATION = 96 # global saturation for goal detection mode - not affected by ADVANCED_SENSOR_SETUP, defeult 64
 CONTRAST = 40 # global contrast for goal detection mode - not affected by ADVANCED_SENSOR_SETUP, defeult 48
 ADVANCED_SENSOR_SETUP = False # fine-tune the sensor for goal
 
@@ -134,49 +153,63 @@ ADVANCED_SENSOR_SETUP = False # fine-tune the sensor for goal
 #""" Balloon grid detection classes and functions """
 # color confidence filter
 class LogOddFilter:
-    def __init__(self, n, p_det=0.95, p_ndet=0.1, p_x=0.5):
+    def __init__(self, row, col, p_det=0.95, p_ndet=0.1, p_x=0.5):
         # p_x: Probability of having a balloon in a cell
         self.init_belif = math.log(p_x/(1-p_x))
         self.l_det = math.log(p_det/(1-p_det))
         self.l_ndet = math.log(p_ndet / (1 - p_ndet))
-        self.L = [0. for _ in range(n)]
-        self.P = [0. for _ in range(n)]
+
+        self.L = np.zeros(row*col, dtype=np.float)
+        self.P = np.zeros(row*col, dtype=np.float)
         print("Initial belief=", self.init_belif,
               "L for detection=", self.l_det,
               "L for not detection", self.l_ndet )
 
-    def update(self, measurements, l_max=10, l_min=-8):
-        for i, z in enumerate(measurements):
-            if z < 0.1:
-                li = self.l_ndet
-            else:
-                # The probability of being detected goes from 0.5 ~ 1.
-                # Not being detected is smaller than 0.5
-                p_x = min(0.99, max(0.52 + 0.48 * z , 0.001))
-                li = math.log(p_x / (1. - p_x))
-                #li = self.l_det
+    def update(self, measurements, l_max=L_MAX, l_min=L_MIN):
+        measurement_array = np.array(measurements, dtype=np.float)
+        measurement_array[measurement_array < 0.1] = self.l_ndet
+        p_x_array = np.clip(0.48 + 0.52 * measurement_array, 0.0001, 0.9999)
+        l_array = np.log(p_x_array / (1. - p_x_array))
+        if FILTER_KERNEL:
+            pass # TODO: to implement
+        else:
+            self.L += l_array - self.init_belif
+            self.L = np.clip(self.L, l_min, l_max)
+            # for i, z in enumerate(measurements):
+            #     if z < 0.1:
+            #         li = self.l_ndet
+            #     else:
+            #         # The probability of being detected goes from 0.5 ~ 1.
+            #         # Not being detected is smaller than 0.5
+            #         p_x = min(0.9999, max(0.48 + 0.52 * z , 0.0001))
+            #         li = np.log(p_x / (1. - p_x))
+            #         # p_x = min(0.99, max(0.52 + 0.48 * z , 0.001))
+            #         # li = math.log(p_x / (1. - p_x))
+            #         #li = self.l_det
 
-            # Detected or not detected
-            #li = self.l_det if z else self.l_ndet
-            # Belief for li
-            self.L[i]+= li - self.init_belif
-            # Cap
-            self.L[i] = min(l_max, max(l_min, self.L[i]))
+            #     # Detected or not detected
+            #     #li = self.l_det if z else self.l_ndet
+            #     # Belief for li
+            #     self.L[i] += li - self.init_belif
+            #     # Cap
+            #     self.L[i] = min(l_max, max(l_min, self.L[i]))
         return self.L
 
     def probabilities(self):
-        for i, l in enumerate(self.L):
-            self.P[i] = 1. / (1. + math.exp(-l))
+        self.P = 1. / (1. + np.exp(-self.L))
+        # for i, l in enumerate(self.L):
+        #     self.P[i] = 1. / (1. + np.exp(-l))
         return self.P
 
 
 class MahalanobisDistanceCalculator:
     def __init__(self, mu, sigma_inv):
-        self.SCALE = 1<<10          # Scaling factor for mu and point
+        self.SCALE = 1<<9          # Scaling factor for mu and point
         # Convert mu to scaled integers
         self.mu_int = array.array('i', [int(x * self.SCALE) for x in mu])
         # Flatten sigma_inv to a 1D array and scale to integers
         self.sigma_inv_int_flat = array.array('i', [int(x * self.SCALE) for row in sigma_inv for x in row])
+
 
     @micropython.viper
     def _distance_mahalanobis(self, point_int) -> int:
@@ -236,6 +269,8 @@ class ColorDetector:
         if mahalanobis:
             self.mu = mu  # mu (list): Mean vector.
             self.sigma_inv = sigma_inv  # sigma_inv (list of lists): Inverse covariance matrix.
+            self.mu_ndarray = np.array(self.mu, dtype=np.float)
+            self.sigma_inv_ndarray = np.array(self.sigma_inv, dtype=np.float)
             self.coefficient = 1 / math.sqrt(2*math.pi) * math.sqrt(sigma_inv[0][0] * sigma_inv[1][1] - sigma_inv[1][0] * sigma_inv[0][1])
             print("det", self.coefficient)
             self.decay = decay
@@ -243,7 +278,7 @@ class ColorDetector:
 
         self.metric = [0. for _ in range(N_COLS*N_ROWS)]
         # Filter
-        self.filter = LogOddFilter(N_ROWS * N_COLS)
+        self.filter = LogOddFilter(N_ROWS, N_COLS)
         self.P = [0. for _ in range(N_COLS*N_ROWS)]
 
 
@@ -253,31 +288,11 @@ class ColorDetector:
         l, a, b = point
         if self.mahalanobis:
             d2 = self._distance_mahalanobis_viper((a, b))
+            # print(d2)
+            # d2 = self.mahalanobis_distance_simple((a, b))
             # NOTE: the name is a bit misleading
             #    -- the d here is actually a probability instead of a distance
-            # use look-up linear functions for maximum optimization of the probability calculation
-            val = d2 / self.decay
-            if val < 0.25:
-                d = -0.9*val + 1
-            elif val < 0.5:
-                d = -0.7*val + 0.953
-            elif val < 0.8:
-                d = -0.5*val + 0.852
-            elif val < 1.2:
-                d = -0.38*val + 0.752
-            elif val < 1.8:
-                d = -0.23*val + 0.575
-            elif val < 3.0:
-                d = -0.1*val + 0.34
-            elif val < 5.2:
-                d = -0.02*val + 0.105
-            elif val < 10.0:
-                d = -0.002*val + 0.021
-            elif val < 20:
-                d = -0.001*val + 0.015
-            else:
-                d = 0.0
-            # d = math.exp(-d2 / self.decay)
+            d = np.exp(-d2 / self.decay)
         else:
             d = self._distance_point_to_segment((a, b), self.line_ref)
 
@@ -299,31 +314,36 @@ class ColorDetector:
 
         return d
 
+
     @micropython.native
     def _distance_mahalanobis(self, point):
-        # Compute the Mahalanobis distance between a point and a distribution. It uses
+        # Compute the Mahalanobis distance between a point and a distribution.
+        # This is the slowest implementation. It uses
         # Parameters:
         #     point (list): Point vector.
         # Returns:
         #     float: Mahalanobis distance.
         # Calculate the difference between the point and the mean
-        diff = [x - y for x, y in zip(point, self.mu)]
+        diff = np.array(point, dtype=np.float) - self.mu_ndarray
 
         # Compute the Mahalanobis distance
-        mahalanobis_sq = self._dot_product(diff, [self._dot_product(sigma_inv_row, diff) for sigma_inv_row in self.sigma_inv])
+        mahalanobis_sq = np.dot(diff, np.dot(self.sigma_inv_ndarray, diff))
         # mahalanobis_dist = mahalanobis_sq ** 0.5
         return mahalanobis_sq
 
+
     def _distance_mahalanobis_viper(self, point):
+        # Compute the Mahalanobis distance between a point and a distribution.
+        # This is the most advanced optimization-wise implementation.
+        # Parameters:
+        # - point: list or array of values
+        # Returns:
+        # - distance: Mahalanobis distance
         point_int = array.array('i', [int(x * self.calculator.SCALE) for x in point])
         mahalanobis_sq_int = self.calculator._distance_mahalanobis(point_int)
         mahalanobis_sq = mahalanobis_sq_int / self.calculator.SCALE
         return mahalanobis_sq
 
-
-    def _dot_product(self, a, b):
-        """Compute the dot product of two vectors."""
-        return sum(x * y for x, y in zip(a, b))
 
     def update_cell(self, row, col, point, std, decay=False):
         if decay:
@@ -335,7 +355,7 @@ class ColorDetector:
         return d
 
     def update_filter(self):
-        self.filter.update(self.metric, l_min=L_MIN, l_max=L_MAX)
+        self.filter.update(self.metric)
         self.P = self.filter.probabilities()
         return self.P
 
@@ -369,7 +389,6 @@ class Grid:
         self.num_cols = num_cols
         self.cell_width = int(img_width / num_cols)
         self.cell_height = int(img_height / num_rows)
-        self._kernel_jump_count = 0
 
     @micropython.native
     def count(self, img, detectors):
@@ -389,21 +408,7 @@ class Grid:
                 roi = (col_start, row_start) + cell_area  # Avoid recalculating cell_width and cell_height
 
                 # Calculate the mean and variance of the ROI
-                if CRAZY_RANDOM_OPTIMIZATION:
-                    if random.random() > OPTIMIZATION_LEVEL:
-                        do_cell_update = True
-                        s = img.get_statistics(roi=roi)
-
-                        # Cache the statistical values
-                        l_mean = s.l_mean()
-                        a_mean = s.a_mean()
-                        b_mean = s.b_mean()
-                        l_stdev = s.l_stdev()
-                        a_stdev = s.a_stdev()
-                        b_stdev = s.b_stdev()
-                    else:
-                        do_cell_update = False
-                else:
+                if not CRAZY_RANDOM_OPTIMIZATION or random.random() > OPTIMIZATION_LEVEL:
                     do_cell_update = True
                     if PROFILING:
                         start_time = time.ticks_us()
@@ -418,6 +423,9 @@ class Grid:
                     l_stdev = s.l_stdev()
                     a_stdev = s.a_stdev()
                     b_stdev = s.b_stdev()
+                else:
+                    do_cell_update = False
+                    l_mean, a_mean, b_mean, l_stdev, a_stdev, b_stdev = 0, 0, 0, 0, 0, 0
 
                 stats_mean = (l_mean, a_mean, b_mean)
                 stats_stdev = (l_stdev, a_stdev, b_stdev)
@@ -487,22 +495,23 @@ class Grid:
         return index
 
 
-    #TODO: rewrite the optimized_loop function so that the kernel sweep uses previous values\
-    #QUESTION: is it dynamic programming?
+    # an ulab-assisted optimized kernel count method
+    @micropython.native
     def kernel_count(self, metric):
-        num_rows = self.num_rows
-        num_cols = self.num_cols
-        metric_len = len(metric)
-        half_kernel = KERNEL_SIZE // 2
-        max_col = -1
-        max_row = -1
-        max_val = -1
-        same_val_rc = []
+        if FILTER_KERNEL:
+            ndarray_morphed_metric = np.array(metric, dtype=np.float)
+        else:
+            ndarray_metric = np.array(metric, dtype=np.float).reshape((N_ROWS, N_COLS))*100
+            metric_image = image.Image(ndarray_metric)
+            metric_image.morph(KERNEL_SIZE//2, kernel_matrix)
+            ndarray_morphed_metric = metric_image.to_ndarray(dtype=np.float).flatten()
 
-        kernel_indices = []
-        for r in range(self._kernel_jump_count, num_rows, KERNEL_JUMP):
-            for c in range(self._kernel_jump_count, num_cols, KERNEL_JUMP):
-                pass
+        max_val = np.max(ndarray_morphed_metric)
+        indices = np.where(abs(ndarray_morphed_metric - max_val) < 0.001, np.arange(len(ndarray_morphed_metric)), -1)
+        matching_indices = indices[indices != -1]
+        same_val_rc = [self._index_to_matrix(i) for i in matching_indices]
+        # print(max_row, max_col, max_val/scale, same_val_rc)
+        return None, None, max_val*kernel_scale//100, same_val_rc
 
 
     @micropython.native
@@ -553,7 +562,7 @@ class Grid:
     def action(self, metric):
         if PROFILING:
             start_time = time.ticks_us()
-        max_row, max_col, max_val, same_val_rc = self.optimized_loop(metric)
+        _, _, max_val, same_val_rc = self.kernel_count(metric)
         if PROFILING:
             print("Pooling: {} us".format(time.ticks_diff(time.ticks_us(), start_time)))
         sum_row, sum_col = 0, 0
@@ -623,7 +632,8 @@ class BalloonTracker:
                 metric = detector.update_filter()
             else:
                 detector.P = detector.metric
-            grid.plot_metric(metric, detector.rgb)
+            if PLOT_METRIC:
+                grid.plot_metric(metric, detector.rgb)
 
         if PRINT_CORNER:
             grid.plot_data_collection()
@@ -679,7 +689,8 @@ class BalloonTracker:
                 self.uy = 0.6*uy + 0.4*self.uy
                 self.val = 0.25*self.val + 0.75*val
                 self.flag = 3 - self.flag
-                img.draw_circle(int(ux), int(uy), int(5), color=(0,255,255), thickness=4, fill=True)
+                if PLOT_METRIC:
+                    img.draw_circle(int(ux), int(uy), int(5), color=(0,255,255), thickness=4, fill=True)
             self.detection_count = MAX_LOST_FRAME_TARGET
 
             if COMBINE_TARGETS:
@@ -729,7 +740,7 @@ class BalloonTracker:
             self.uy = 0
 
         # LED indicator and flag toggle
-        if self.detection_count > 0:
+        if self.detection_count > 0 and PLOT_METRIC:
             # Draw the ROI on the image
             img.draw_circle(int(self.ux), int(self.uy),
                             int(5*self.val), color=(255,0,0),
@@ -1781,7 +1792,7 @@ def init_sensor_target(tracking_type:int, framesize=FRAME_SIZE, windowsize=None)
         sensor.__write_reg(0xd0, SATURATION)    # change global saturation - default 64
         sensor.__write_reg(0xd1, 48)            # Cb saturation - default 48
         sensor.__write_reg(0xd2, 48)            # Cr saturation - default 48
-        sensor.__write_reg(0xd3, CONTRAST)            # contrast - default 48
+        sensor.__write_reg(0xd3, CONTRAST)      # contrast - default 48
         sensor.__write_reg(0xd5, 0)             # luma offset - default 0 (sign + 7 format)
         sensor.skip_frames(time = 1000)
 
@@ -1872,7 +1883,6 @@ def init_sensor_target(tracking_type:int, framesize=FRAME_SIZE, windowsize=None)
             sensor.skip_frames(2)
             print("AWB Gain setup done.")
 
-
             # color setup - saturation
             sensor.__write_reg(0xfe, 2)     # change to registers at page 2
             sensor.__write_reg(0xd0, 128)    # change global saturation,
@@ -1882,7 +1892,17 @@ def init_sensor_target(tracking_type:int, framesize=FRAME_SIZE, windowsize=None)
             sensor.__write_reg(0xd5, 0)     # luma offset
         elif board == OPENMV:
             print(sensor.get_rgb_gain_db())
+            # sensor.set_saturation(3) # saturation setup is broken for openmv rt1062
             sensor.set_auto_whitebal(False, rgb_gain_db=(R_GAIN, G_GAIN, B_GAIN))
+            sensor.set_auto_exposure(True)
+            sensor.set_contrast(-2)
+            sensor.set_brightness(3)
+
+            # enable saturation setup
+            sensor.__write_reg(0x5580, sensor.__read_reg(0x5580) | 0x02)
+            sensor.__write_reg(0x5583, SATURATION)
+            sensor.__write_reg(0x5584, SATURATION)
+
     else:
         raise ValueError("Not a valid sensor-detection mode!")
 
@@ -2040,7 +2060,7 @@ if __name__ == "__main__":
             print("0 flag!")
             assert(flag == 0)
 
-        print("fps: ", clock.fps())
+        # print("fps: ", clock.fps())
 
         uart.write(msg)
         if uart.any():
