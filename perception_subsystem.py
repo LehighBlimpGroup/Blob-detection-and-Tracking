@@ -26,24 +26,24 @@ if board == OPENMV:
 
 # manual white balance - to be used with *get_gains.py* in the repository
 # - see RGB gain readings in the console
-R_GAIN, G_GAIN, B_GAIN = [62, 60, 66] #[64, 65, 83]
+R_GAIN, G_GAIN, B_GAIN = [62, 60.5, 64] #[64, 65, 83]
 
 """ MACROS for balloon detection """
 # Grid setup
-N_ROWS = 10
-N_COLS = 15
+N_ROWS = 12
+N_COLS = 16
 
 # Probablistic filter for detection
 FILTER = True
 L_MAX = 10
-L_MIN = -4
+L_MIN = -6
 
 # print the stats at the upper left corner - for balloon color data collection
 PRINT_CORNER = False
 PLOT_METRIC = True
 
 # whether combine detction of green and purple as target balloons
-COMBINE_TARGETS = True
+COMBINE_TARGETS = False
 
 # Color distribution - From the data analysis
 COLOR_DATA = {
@@ -52,6 +52,7 @@ COLOR_DATA = {
     "blue": [[18.7854, -10.05301], [[3.8293, -1.8963], [-1.8963, 17.7735]]],
     "red": [[42.01334903808402, 20.50530035335689] ,  [[0.01419921622178408, -0.010337187414071827], [-0.010337187414071825, 0.016876163913575336]]]
 } # openmv
+
 # COLOR_DATA = {
 #     "purple": [[5.296204512847267, -16.034955001956437] ,  [[0.06109919151490151, 0.014578097165926314], [0.014578097165926313, 0.01695861889387148]]],
 #     "green": [[-14.603367697594502, 15.553883161512028] ,  [[0.09030608562216992, 0.04070227257445328], [0.04070227257445328, 0.038201932090824356]]],
@@ -59,22 +60,23 @@ COLOR_DATA = {
 #     "red": [[54.89488372093023, 39.03813953488372] ,  [[0.03884277545995741, -0.04972294704777547], [-0.04972294704777547, 0.08340376032641221]]]
 # } # nicla
 
+
 # color detection sensitivities:
 # [0]: higher value for more sensitive detection
 # [1]: for filtering out uniform colors such as a light source, higher -> less positive detection
 # [2]: for filtering out messy background/environment, lower -> less positive detection
 COLOR_SENSITIVITY = {
-    "purple": [2.0, 5.0, 25.0],
-    "green": [3.0, 5.0, 30.0],
+    "purple": [4.0, 5.0, 28.0],
+    "green": [2.0, 5.0, 26.0],
     "blue": [2.0, 5.0, 30.0],
     "red": [2.0, 5.0, 30.0]
 }
 
 # range of the L channel values that guarantee valid detection
-L_RANGE = [4, 85]
+L_RANGE = [4, 80]
 
 # the minimum value of the maximum cell that we consider a successful detection
-COLOR_CONFIDENCE = 0.32
+COLOR_CONFIDENCE = 0.3
 
 # target balloon colors {color id: (RGB value for visulization)}
 COLOR_TARGET = {"purple": (255,0,255),
@@ -87,22 +89,21 @@ COLOR_PEER = {"red": (255, 0, 0)}
 NEIGHBOR_REMOVAL = False
 NEIGHBOR_REMOVAL_FACTOR = 1.3
 # NEIGHBOR FORMAT: {$neighbor: ($target, RGB value for visulization)}
-COLOR_NEIGHBOR = {}#{"blue": ("purple", (0,0,255))}
+COLOR_NEIGHBOR = {} # {"blue": ("purple", (0,0,255))}
 
 
 # tracking parameters
 MAX_LOST_FRAME_TARGET = 20 # maximum number of frames without a positive balloon detection
                            # with data of the current detection still reported to the controller
-MAX_LOST_FRAME_GOAL = 20   # maximum number of frames without a positive goal detection
-                           # with data of the current detection still reported to the controller
+MAX_LOST_FRAME_GOAL = 10   # maximum number of frames without a positive goal detection
 MOMENTUM = 0.0 # keep the tracking result move if the detection is momentarily lost
 
 # action kernel setup
 FILTER_KERNEL = False #TODO: using LogOdd filter-based kernel
 KERNEL_SIZE = 5 # a n x n kernel that summarizes the possibility scores inside to give the most
                 # approachable detection, for target balloon detections only
-kernel_scale = (KERNEL_SIZE + 1) ** 2
 KERNEL_CENTER_EMPH = 3 # how much weight we want the center of the kernel to count
+kernel_scale = KERNEL_SIZE ** 2 + KERNEL_CENTER_EMPH - 1
 kernel_matrix = []
 for i in range(KERNEL_SIZE):
     kernel_row = []
@@ -115,8 +116,8 @@ for i in range(KERNEL_SIZE):
 
 # Performance profiling
 PROFILING = False
-CRAZY_RANDOM_OPTIMIZATION = True
-OPTIMIZATION_LEVEL = 0.5
+CRAZY_RANDOM_OPTIMIZATION = False
+OPTIMIZATION_LEVEL = 0.2
 RANDOM_DACAY = 0.5*2*OPTIMIZATION_LEVEL
 
 # MACROS for goal detection
@@ -127,7 +128,7 @@ FF_SIZE = 0.0 # The forgetting factor for the size
 GF_POSITION = 0.3 # The gain factor for the position
 GF_SIZE = 0.3 # The gain factor for the size
 
-FRAME_SIZE = sensor.HQVGA
+FRAME_SIZE = sensor.QVGA
 FRAME_PARAMS = None
 if FRAME_SIZE == sensor.VGA:
     FRAME_PARAMS = [0, 0, 640, 480] # Upper left corner x, y, width, height
@@ -149,11 +150,10 @@ SATURATION = 96 # global saturation for goal detection mode - not affected by AD
 CONTRAST = 40 # global contrast for goal detection mode - not affected by ADVANCED_SENSOR_SETUP, defeult 48
 ADVANCED_SENSOR_SETUP = False # fine-tune the sensor for goal
 
-
 #""" Balloon grid detection classes and functions """
 # color confidence filter
 class LogOddFilter:
-    def __init__(self, row, col, p_det=0.95, p_ndet=0.1, p_x=0.5):
+    def __init__(self, row, col, p_det=0.99, p_ndet=0.01, p_x=0.5):
         # p_x: Probability of having a balloon in a cell
         self.init_belif = math.log(p_x/(1-p_x))
         self.l_det = math.log(p_det/(1-p_det))
@@ -165,6 +165,7 @@ class LogOddFilter:
               "L for detection=", self.l_det,
               "L for not detection", self.l_ndet )
 
+
     def update(self, measurements, l_max=L_MAX, l_min=L_MIN):
         measurement_array = np.array(measurements, dtype=np.float)
         measurement_array[measurement_array < 0.1] = self.l_ndet
@@ -175,25 +176,8 @@ class LogOddFilter:
         else:
             self.L += l_array - self.init_belif
             self.L = np.clip(self.L, l_min, l_max)
-            # for i, z in enumerate(measurements):
-            #     if z < 0.1:
-            #         li = self.l_ndet
-            #     else:
-            #         # The probability of being detected goes from 0.5 ~ 1.
-            #         # Not being detected is smaller than 0.5
-            #         p_x = min(0.9999, max(0.48 + 0.52 * z , 0.0001))
-            #         li = np.log(p_x / (1. - p_x))
-            #         # p_x = min(0.99, max(0.52 + 0.48 * z , 0.001))
-            #         # li = math.log(p_x / (1. - p_x))
-            #         #li = self.l_det
-
-            #     # Detected or not detected
-            #     #li = self.l_det if z else self.l_ndet
-            #     # Belief for li
-            #     self.L[i] += li - self.init_belif
-            #     # Cap
-            #     self.L[i] = min(l_max, max(l_min, self.L[i]))
         return self.L
+
 
     def probabilities(self):
         self.P = 1. / (1. + np.exp(-self.L))
@@ -253,7 +237,8 @@ class ColorDetector:
                  detector_type: str,
                  line_ref,
                  max_dist, std_range, light_range, rgb,
-                 mahalanobis=True, mu=None, sigma_inv=None, decay=4., neighbor=None):
+                 mahalanobis=True, mu=None, sigma_inv=None, decay=4.,
+                 neighbor=None):
         self.color_id = color_id
         self.line_ref = line_ref
         self.max_dist = max_dist
@@ -315,19 +300,13 @@ class ColorDetector:
         return d
 
 
-    @micropython.native
-    def _distance_mahalanobis(self, point):
-        # Compute the Mahalanobis distance between a point and a distribution.
-        # This is the slowest implementation. It uses
-        # Parameters:
-        #     point (list): Point vector.
-        # Returns:
-        #     float: Mahalanobis distance.
-        # Calculate the difference between the point and the mean
-        diff = np.array(point, dtype=np.float) - self.mu_ndarray
-
-        # Compute the Mahalanobis distance
-        mahalanobis_sq = np.dot(diff, np.dot(self.sigma_inv_ndarray, diff))
+    def batch_distance_mahalanobis(self, stats):
+        # Compute the Mahalanobis distance between a set of points and a distribution.
+        stats_mean_ab = stats[:, 1:3]
+        diff_mean_ab = stats_mean_ab - self.mu_ndarray
+        # Compute the Mahalanobis distance in batch
+        VQ = np.dot(diff_mean_ab, self.sigma_inv_ndarray)
+        mahalanobis_sq = np.sum(VQ * diff_mean_ab, axis=1)
         # mahalanobis_dist = mahalanobis_sq ** 0.5
         return mahalanobis_sq
 
@@ -353,6 +332,24 @@ class ColorDetector:
             d = self._distance(point, std)
             self.metric[row * N_COLS + col] = d
         return d
+
+
+    def batch_update_cell(self, stats_array):
+        d2_batch = self.batch_distance_mahalanobis(stats_array)
+        score_batch = np.exp(-d2_batch / self.decay)
+
+        # Check if standard deviation is in range
+        std_cols = stats_array[:, 3:6]
+        mask_std = np.any((std_cols < self.std_range[0]) | (std_cols > self.std_range[1]), axis=1)
+        mask_l = (stats_array[:, 0] > self.l_range[1]) | (stats_array[:, 0] < self.l_range[0])
+        mask = mask_std | mask_l
+
+        score_batch[mask] = 0.0
+
+        self.metric = score_batch
+
+        return None
+
 
     def update_filter(self):
         self.filter.update(self.metric)
@@ -390,6 +387,7 @@ class Grid:
         self.cell_width = int(img_width / num_cols)
         self.cell_height = int(img_height / num_rows)
 
+
     @micropython.native
     def count(self, img, detectors):
         num_rows = self.num_rows
@@ -397,7 +395,6 @@ class Grid:
         cell_width = self.cell_width
         cell_height = self.cell_height
         detector_values = detectors.values()
-        cell_area = (cell_width, cell_height)
 
         for row in range(num_rows):
             row_start = row * cell_height
@@ -405,7 +402,7 @@ class Grid:
 
             for col in range(num_cols):
                 col_start = col * cell_width
-                roi = (col_start, row_start) + cell_area  # Avoid recalculating cell_width and cell_height
+                roi = (col_start, row_start, cell_width, cell_height)
 
                 # Calculate the mean and variance of the ROI
                 if not CRAZY_RANDOM_OPTIMIZATION or random.random() > OPTIMIZATION_LEVEL:
@@ -445,6 +442,45 @@ class Grid:
                 print()
 
 
+    # an optimized counting method that ``batch-counts'' all cells using ulab numpy
+    # CRAZY_RANDOM_OPTIMIZATION works in a different way
+    def np_count(self, img, detectors):
+        num_rows = self.num_rows
+        num_cols = self.num_cols
+        cell_width = self.cell_width
+        cell_height = self.cell_height
+        detector_values = detectors.values()
+
+        stats_array = np.zeros((num_rows*num_cols, 6), dtype=np.float)
+        for row in range(num_rows):
+            row_start = row * cell_height
+            print_corner_row = PRINT_CORNER and 2 < row < 6
+
+            for col in range(num_cols):
+                col_start = col * cell_width
+                roi = (col_start, row_start, cell_width, cell_height)
+                s = img.get_statistics(roi=roi)
+
+                # Cache the statistical values
+                l_mean = s.l_mean()
+                a_mean = s.a_mean()
+                b_mean = s.b_mean()
+                l_stdev = s.l_stdev()
+                a_stdev = s.a_stdev()
+                b_stdev = s.b_stdev()
+
+                stats_array[self._matrix_to_index(row, col), :] = np.array([l_mean, a_mean, b_mean, l_stdev, a_stdev, b_stdev])
+
+                if print_corner_row and 4 < col < 8:
+                    print((a_mean, b_mean), end=', ')
+
+            if print_corner_row:
+                print()
+
+        for detector in detector_values:
+            detector.batch_update_cell(stats_array)
+
+
     def plot_metric(self, metrics, rgb):
         for row in range(self.num_rows):
             for col in range(self.num_cols):
@@ -472,6 +508,7 @@ class Grid:
         totalones = max(sum(ones), 1)
         nones = [i / totalones for i in ones]
         return nones
+
 
     def statistics(self, nones):
         # Compute the mean of the sample vector
@@ -501,17 +538,17 @@ class Grid:
         if FILTER_KERNEL:
             ndarray_morphed_metric = np.array(metric, dtype=np.float)
         else:
-            ndarray_metric = np.array(metric, dtype=np.float).reshape((N_ROWS, N_COLS))*100
+            pixel_sacle = 256
+            ndarray_metric = np.array(metric*pixel_sacle, dtype=np.float).reshape((N_ROWS, N_COLS))
             metric_image = image.Image(ndarray_metric)
             metric_image.morph(KERNEL_SIZE//2, kernel_matrix)
-            ndarray_morphed_metric = metric_image.to_ndarray(dtype=np.float).flatten()
+            ndarray_morphed_metric = metric_image.to_ndarray(dtype=np.uint8).flatten()
 
         max_val = np.max(ndarray_morphed_metric)
-        indices = np.where(abs(ndarray_morphed_metric - max_val) < 0.001, np.arange(len(ndarray_morphed_metric)), -1)
+        indices = np.where(abs(ndarray_morphed_metric - max_val) < 0.5, np.arange(len(ndarray_morphed_metric)), -1)
         matching_indices = indices[indices != -1]
         same_val_rc = [self._index_to_matrix(i) for i in matching_indices]
-        # print(max_row, max_col, max_val/scale, same_val_rc)
-        return None, None, max_val*kernel_scale//100, same_val_rc
+        return None, None, max_val*kernel_scale//pixel_sacle, same_val_rc
 
 
     @micropython.native
@@ -596,7 +633,7 @@ class Grid:
         return cell_row + 0.5, cell_col + 0.5, sum_score
 
 
-# Dummy class for the balloon detection to use with the tracker in the main function
+# Class for the balloon detection to use with the tracker in the main function
 class BalloonTracker:
     def __init__(self, grid, detectors, filter_on=FILTER):
         self.grid = grid
@@ -619,10 +656,11 @@ class BalloonTracker:
         self.vely = 0
         self.balloon_color = None
 
+
     def track(self, img):
         if PROFILING:
             start_time = time.ticks_ms()
-        self.grid.count(img, detectors)
+        self.grid.np_count(img, detectors)
         if PROFILING:
             print("counting total: {} ms".format(time.ticks_diff(time.ticks_ms(), start_time)))
         for color, detector in self.detectors.items():
@@ -766,24 +804,19 @@ class BalloonTracker:
         return [x_roi, y_roi, w_roi, h_roi, x_value, y_value, w_roi, h_roi, 0.0], self.flag | 0x40
 
 
-
 """ Goal detection classes and functions """
 # a moving ROI that shrinks towards a current detection and expands to the framesize without an active detection
 class MemROI:
     def __init__(self, frame_params:list = FRAME_PARAMS,
                  min_windowsize:int=20, ffp:float=FF_POSITION, ffs:float=FF_SIZE,
                  gfp:float=GF_POSITION, gfs:float=GF_SIZE)->None:
-#        """
-#        @description: Constructor of the ROI object that memorizes previous states.
-#        @param       {*} self:
-#        @param       {list} frame_params: The parameters of the frame [x0, y0, max_w, max_h]
-#        @param       {int} min_windowsize: The minimum size of the tracking window
-#        @param       {float} ffp: The forgetting factor for the position
-#        @param       {float} ffs: The forgetting factor for the size
-#        @param       {float} gfp: The gain factor for the position
-#        @param       {float} gfs: The gain factor for the size
-#        @return      {*} None
-#        """
+        # @description: Constructor of the ROI object that memorizes previous states.
+        # @param {list} frame_params: The parameters of the frame [x0, y0, max_w, max_h]
+        # @param {int} min_windowsize: The minimum size of the tracking window
+        # @param {float} ffp: The forgetting factor for the position
+        # @param {float} ffs: The forgetting factor for the size
+        # @param {float} gfp: The gain factor for the position
+        # @param {float} gfs: The gain factor for the size
         print(frame_params)
         self.roi = frame_params # [x0, y0, w, h]
         self.frame_params = frame_params  # [x0, y0, max_w, max_h]
@@ -792,6 +825,7 @@ class MemROI:
         self.ffs = ffs
         self.gfp = gfp
         self.gfs = gfs
+
 
     def _clamp(self)->None:
         """
@@ -806,6 +840,7 @@ class MemROI:
         # Ensure the ROI's bottom-right corner is within the bounds.
         self.roi[2] = min(self.frame_params[2] - self.roi[0], self.roi[2])
         self.roi[3] = min(self.frame_params[3] - self.roi[1], self.roi[3])
+
 
     def _center(self, rect:list)->tuple:
         """
@@ -884,6 +919,7 @@ class MemROI:
 #        @return      {list} The ROI [x0, y0, w, h]
 #        """
         return [math.ceil(value)+1 for value in self.roi]
+
 
 # determine the shape of a detected goal
 class ShapeDetector:
@@ -1208,6 +1244,7 @@ class CurBLOB:
             self.untracked_frames += 1
             return None
 
+
 # base class for a tracking bounding box
 class Tracker:
     def __init__(
@@ -1216,8 +1253,6 @@ class Tracker:
         clock: time.clock,
         show: bool = True,
         max_untracked_frames: int = 0,
-        dynamic_threshold: bool = False,
-        threshold_update_rate: int = 0,
     ) -> None:
         """
         @description: Constructor of the Tracker class
@@ -1235,19 +1270,14 @@ class Tracker:
         self.clock = clock  # The clock to track the time
         self.show = show  # Whether to show the image
         self.max_untracked_frames = max_untracked_frames  # The maximum number of untracked frames
-        self.dynamic_threshold = dynamic_threshold  # Whether to use dynamic threshold
-        self.threshold_update_rate = threshold_update_rate  # The rate of threshold update
-        self.r_LED = LED(1)  # The red LED
-        self.g_LED = LED(2)  # The green LED
-        self.b_LED = LED(3)  # The blue LED
-
-    def track(self):
-        # TODO: Implement this function in the child class
-        pass
-
-    def find_reference(self):
-        # TODO: Implement this function in the child class
-        pass
+        if board == OPENMV:
+            self.r_LED = LED("LED_RED")
+            self.g_LED = LED("LED_GREEN")
+            self.b_LED = LED("LED_BLUE")
+        elif board == NICLA:
+            self.r_LED = LED(1)  # The red LED
+            self.g_LED = LED(2)  # The green LED
+            self.b_LED = LED(3)  # The blue LED
 
     def draw_initial_blob(self, img: image, blob: image.blob, sleep_us: int = 50000) -> None:
         """
@@ -1286,13 +1316,11 @@ class Tracker:
         return max_blob
 
     def _comp_new_threshold(self, statistics: image.statistics, mul_stdev: float = 3) -> tuple:
-#        """
-#        @description: Compute the new threshold based on the color statistics
-#        @param       {image} statistics: The color statistics of the blob
-#        @param       {float} mul_stdev: The multiplier of the standard deviation
-#        @return      {tuple} The new threshold
-#        WARNING: Could be deprecated
-#        """
+        # @description: Compute the new threshold based on the color statistics
+        # @param       {image} statistics: The color statistics of the blob
+        # @param       {float} mul_stdev: The multiplier of the standard deviation
+        # @return      {tuple} The new threshold
+        # WARNING: Could be deprecated
         L_mean = statistics.l_mean()
         L_stdev = statistics.l_stdev()
         A_mean = statistics.a_mean()
@@ -1311,46 +1339,15 @@ class Tracker:
         return new_threshold
 
     def _comp_weighted_avg(self, new_vec: tuple, orig_vec: tuple, w1: float = 0.1, w2: float = 0.9) -> tuple:
-#        """
-#        @description: Compute the weighted average of two vectors
-#        @param       {tuple} new_vec: The new vector
-#        @param       {tuple} orig_vec: The original vector to be averaged with
-#        @param       {float} w1: The weight of the new vector (default: 0.1)
-#        @param       {float} w2: The weight of the original vector (default: 0.9)
-#        @return      {tuple} The weighted average of the two vectors
-#        WARNING: Could be deprecated
-#        """
+        # @description: Compute the weighted average of two vectors
+        # @param       {tuple} new_vec: The new vector
+        # @param       {tuple} orig_vec: The original vector to be averaged with
+        # @param       {float} w1: The weight of the new vector (default: 0.1)
+        # @param       {float} w2: The weight of the original vector (default: 0.9)
+        # @return      {tuple} The weighted average of the two vectors
+        # WARNING: Could be deprecated
         weighted_avg = [int(w1 * new_vec[i] + w2 * orig_vec[i]) for i in range(len(new_vec))]
         return tuple(weighted_avg)
-
-    def update_thresholds(
-        self,
-        statistics: image.statistics = None,
-        recall: bool = False,
-        reset: bool = False,
-    ) -> None:
-#        """
-#        @description: Update the thresholds
-#        @param       {*} self:
-#        @param       {image.statistics} statistics: The color statistics of the blob
-#        @param       {bool} recall: If we want to recall the original threshold (default: False)
-#        @param       {bool} reset: If we want to reset the threshold (default: False)
-#        @return      {*} None
-#        """
-        if not self.dynamic_threshold:
-            return
-        if recall:
-            new_threshold = [threshold for threshold in self.original_thresholds]  # Deep copy the original thresholds
-        else:
-            new_threshold = self._comp_new_threshold(statistics) if statistics else self.original_thresholds
-        # Calculate the weighted average of the new threshold and the original threshold
-        for i in range(len(self.current_thresholds)):
-            self.current_thresholds[i] = self._comp_weighted_avg(
-                new_threshold,
-                self.current_thresholds[i],
-                self.threshold_update_rate if not reset else 0,
-                1 - self.threshold_update_rate if not reset else 1,
-            )
 
     def update_leds(self, tracking: bool = False, detecting: bool = False, lost: bool = True) -> None:
 #        """
@@ -1361,9 +1358,6 @@ class Tracker:
 #        @param       {bool} lost: If we lost the blob
 #        @return      {*} None
 #        """
-#        self.g_LED.off()
-#        self.r_LED.off()
-#        self.b_LED.off()
         if tracking and detecting and not lost:
             self.g_LED.on()
             self.r_LED.on()
@@ -1393,19 +1387,14 @@ class GoalTracker(Tracker):
         LEDpin: str = "PG12",
         sensor_sleep_time: int = 50000,
     ) -> None:
-#        """
-#        @description:
-#        @param       {*} self:
-#        @param       {list} thresholds: The list of thresholds for the goal
-#        @param       {time} clock: The clock to track the time
-#        @param       {bool} show: Whether to show the image (default: True)
-#        @param       {int} max_untracked_frames: The maximum number of untracked frames until the tracker resets (default: 5)
-#        @param       {bool} dynamic_threshold: Whether to use dynamic threshold (default: False)
-#        @param       {float} threshold_update_rate: The rate of threshold update (default: 0)
-#        @param       {str} LEDpin: The pin of the IR LED (default: "PG12")
-#        @param       {int} sensor_sleep_time: The time to sleep after the sensor captures a new image (default: 50000)
-#        @return      {*}
-#        """
+        # @param {list} thresholds: The list of thresholds for the goal
+        # @param {time} clock: The clock to track the time
+        # @param {bool} show: Whether to show the image (default: True)
+        # @param {int} max_untracked_frames: The maximum number of untracked frames until the tracker resets (default: 5)
+        # @param {bool} dynamic_threshold: Whether to use dynamic threshold (default: False)
+        # @param {float} threshold_update_rate: The rate of threshold update (default: 0)
+        # @param {str} LEDpin: The pin of the IR LED (default: "PG12")
+        # @param {int} sensor_sleep_time: The time to sleep after the sensor captures a new image (default: 50000)
         super().__init__(
             thresholds,
             clock,
@@ -1430,6 +1419,7 @@ class GoalTracker(Tracker):
         self.flag = 0x80
         self.sensor_sleep_time = sensor_sleep_time
 
+
     def __del__(self):
         sensor.dealloc_extra_fb()
         sensor.dealloc_extra_fb()
@@ -1438,12 +1428,10 @@ class GoalTracker(Tracker):
 
 
     def track(self, edge_removal: bool = True) -> tuple:
-#        """
-#        @description: Track the blob with dynamic threshold and ROI
-#        @param       {*} self:
-#        @param       {bool} edge_removal: Whether to remove the edge noises (default: True)
-#        @return      {tuple} The feature vector of the tracked blob and whether the blob is tracked
-#        """
+        # @description: Track the blob with dynamic threshold and ROI
+        # @param       {*} self:
+        # @param       {bool} edge_removal: Whether to remove the edge noises (default: True)
+        # @return      {tuple} The feature vector of the tracked blob and whether the blob is tracked
         # the 8-bit flag variable
         # From MSB to LSB
         # [7]: 1 for goal
@@ -1736,6 +1724,8 @@ class GoalTracker(Tracker):
 #            time.sleep_us(self.sensor_sleep_time+ elapsed%self.sensor_sleep_time)
         return None
 
+
+
 # helper function for calculating the length of a line segment
 def line_length(coords):
     # Calculate the length of a line segment given its coordinates.
@@ -1748,7 +1738,7 @@ def line_length(coords):
     return math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
 
 
-#""" Sensor initialization based on the object to track: 0 for balloon and 1 for goal """
+# Sensor initialization based on the object to track: 0 for balloon and 1 for goal
 def init_sensor_target(tracking_type:int, framesize=FRAME_SIZE, windowsize=None) -> None:
     # Initialize sensors by updating the registers
     # for the two different purposes
@@ -1759,41 +1749,43 @@ def init_sensor_target(tracking_type:int, framesize=FRAME_SIZE, windowsize=None)
         # goal detection sensor setup
         sensor.reset()
         sensor.set_auto_exposure(True)
-        sensor.ioctl(sensor.IOCTL_SET_FOV_WIDE, True)
-        sensor.__write_reg(0xfe, 0b00000000) # change to registers at page 0
-        sensor.__write_reg(0x80, 0b01111110) # [7] reserved, [6] gamma enable, [5] CC enable,
-        # sensor.__write_reg(0x03, 0b00000011) # high bits of exposure control
-        # sensor.__write_reg(0x04, 0b11000000) # low bits of exposure control
         sensor.set_pixformat(sensor.RGB565)
         sensor.set_framesize(framesize)
-        if ADVANCED_SENSOR_SETUP:
-            sensor.__write_reg(0x80, 0b01101110)    # [7] reserved, [6] gamma enable, [5] CC enable,
-                                                    # [4] Edge enhancement enable
-                                                    # ------------------------------------------------
-                                                    # WARNING: necessary or unusable image will occur:
-                                                    # [3] Interpolation enable,
-                                                    # ------------------------------------------------
-                                                    # [2] DN enable, [1] DD enable,
-                                                    # ------------------------------------------------
-                                                    # WARNING: extremely recommended to disable:
-                                                    # [0] Lens-shading correction enable - gives you uneven
-                                                    #                                      shade in the dark
-                                                    #                                      badly!!!!!
-                                                    # ------------------------------------------------
-            sensor.__write_reg(0x81, 0b01010100)    # [7] BLK dither mode, [6] low light Y stretch enable
+        if board == NICLA:
+            sensor.ioctl(sensor.IOCTL_SET_FOV_WIDE, True)
+            sensor.__write_reg(0xfe, 0b00000000) # change to registers at page 0
+            sensor.__write_reg(0x80, 0b01111110) # [7] reserved, [6] gamma enable, [5] CC enable,
+            if ADVANCED_SENSOR_SETUP:
+                sensor.__write_reg(0x80, 0b01101110)    # [7] reserved, [6] gamma enable, [5] CC enable,
+                                                        # [4] Edge enhancement enable
+                                                        # ------------------------------------------------
+                                                        # WARNING: necessary or unusable image will occur:
+                                                        # [3] Interpolation enable,
+                                                        # ------------------------------------------------
+                                                        # [2] DN enable, [1] DD enable,
+                                                        # ------------------------------------------------
+                                                        # WARNING: extremely recommended to disable:
+                                                        # [0] Lens-shading correction enable - gives you uneven
+                                                        #                                      shade in the dark
+                                                        #                                      badly!!!!!
+                                                        # ------------------------------------------------
+                sensor.__write_reg(0x81, 0b01010100)    # [7] BLK dither mode, [6] low light Y stretch enable
 
-            # ABS - anti-blur
-            sensor.__write_reg(0xfe, 1)             # change to registers at page 1
-            sensor.__write_reg(0x9a, 0b11110111)    # [7:4] add dynamic range, [2:0] abs adjust every frame
-            sensor.__write_reg(0x9d, 0xff)          # [7:0] Y stretch limit
+                # ABS - anti-blur
+                sensor.__write_reg(0xfe, 1)             # change to registers at page 1
+                sensor.__write_reg(0x9a, 0b11110111)    # [7:4] add dynamic range, [2:0] abs adjust every frame
+                sensor.__write_reg(0x9d, 0xff)          # [7:0] Y stretch limit
 
-        # color setup - saturation
-        sensor.__write_reg(0xfe, 2)             # change to registers at page 2
-        sensor.__write_reg(0xd0, SATURATION)    # change global saturation - default 64
-        sensor.__write_reg(0xd1, 48)            # Cb saturation - default 48
-        sensor.__write_reg(0xd2, 48)            # Cr saturation - default 48
-        sensor.__write_reg(0xd3, CONTRAST)      # contrast - default 48
-        sensor.__write_reg(0xd5, 0)             # luma offset - default 0 (sign + 7 format)
+                # color setup - saturation
+                sensor.__write_reg(0xfe, 2)             # change to registers at page 2
+                sensor.__write_reg(0xd0, SATURATION)    # change global saturation - default 64
+                sensor.__write_reg(0xd1, 48)            # Cb saturation - default 48
+                sensor.__write_reg(0xd2, 48)            # Cr saturation - default 48
+                sensor.__write_reg(0xd3, CONTRAST)      # contrast - default 48
+                sensor.__write_reg(0xd5, 0)             # luma offset - default 0 (sign + 7 format)
+        elif board == OPENMV:
+            pass
+
         sensor.skip_frames(time = 1000)
 
     elif tracking_type == 0:
@@ -1809,8 +1801,7 @@ def init_sensor_target(tracking_type:int, framesize=FRAME_SIZE, windowsize=None)
         sensor.set_auto_whitebal(False)
         sensor.set_auto_exposure(False)
 
-        """ sensor setup
-        """
+        # sensor setup
         if board == NICLA:
             sensor.__write_reg(0xfe, 0) # change to registers at page 0
             sensor.__write_reg(0x80, 0b01111110)    # [7] reserved, [6] gamma enable, [5] CC enable,
@@ -1895,13 +1886,27 @@ def init_sensor_target(tracking_type:int, framesize=FRAME_SIZE, windowsize=None)
             # sensor.set_saturation(3) # saturation setup is broken for openmv rt1062
             sensor.set_auto_whitebal(False, rgb_gain_db=(R_GAIN, G_GAIN, B_GAIN))
             sensor.set_auto_exposure(True)
-            sensor.set_contrast(-2)
-            sensor.set_brightness(3)
+            sensor.set_contrast(-3)
+            sensor.set_brightness(1)
+
+            # ISP setup:
+            sensor.__write_reg(0x5000, 0b00100111) # [7]: lens correction, [5]: raw gamma
+                                                   # [2:1]: black/white pixel cancellation
+                                                   # [0]: color interpolation
+            sensor.__write_reg(0x5001, sensor.__read_reg(0x5001) | 0b00000110) # [7]: SFX, [5]: scaling
+            sensor.__write_reg(0x5001, sensor.__read_reg(0x5001) & 0b01111111) # [2]: UV average,
+                                                                               # [1]: color matrix
+                                                                               # [0]: AWB
+            # Lens correction setup
+            # sensor.__write_reg(0x583E, 128) # maxmum gain, default 64
+            # sensor.__write_reg(0x583F, 8) # minimum gain, default 32
+            # sensor.__write_reg(0x5840, 24) # Minimum Q, default 24
+            # sensor.__write_reg(0x5841, 0b00000000) # [3:2] add BLC, BLC, [1:0]: manual, auto Q
 
             # enable saturation setup
-            sensor.__write_reg(0x5580, sensor.__read_reg(0x5580) | 0x02)
-            sensor.__write_reg(0x5583, SATURATION)
-            sensor.__write_reg(0x5584, SATURATION)
+            # sensor.__write_reg(0x5580, sensor.__read_reg(0x5580) | 0x02)
+            # sensor.__write_reg(0x5583, SATURATION)
+            # sensor.__write_reg(0x5584, SATURATION)
 
     else:
         raise ValueError("Not a valid sensor-detection mode!")
@@ -1940,8 +1945,7 @@ def IBus_message(message_arr_to_send):
 
 
 def mode_initialization(input_mode, mode, grid=None, detectors=None):
-#    """ Switching between blinking goal tracker and balloon tracker
-#    """
+    # Switching between blinking goal tracker and balloon tracker
     if mode == input_mode:
         print("already in the mode")
         return None
@@ -1955,7 +1959,9 @@ def mode_initialization(input_mode, mode, grid=None, detectors=None):
             thresholds = TARGET_COLOR
             init_sensor_target(tracking_type=1)
             # Find reference
-            tracker = GoalTracker(thresholds, clock, max_untracked_frames = 10, sensor_sleep_time=WAIT_TIME_US)
+            tracker = GoalTracker(thresholds, clock,
+                                  max_untracked_frames = MAX_LOST_FRAME_GOAL,
+                                  sensor_sleep_time=WAIT_TIME_US)
             print("Goal mode!")
         else:
             raise ValueError("Invalid mode selection")
@@ -2024,7 +2030,7 @@ if __name__ == "__main__":
     elif board == OPENMV:
         uart = UART(1, baudrate= 115200, timeout_char=10)
 
-#    """ Main loop """
+    # Main loop
     while True:
         clock.tick()
         if mode == 1:
@@ -2060,7 +2066,7 @@ if __name__ == "__main__":
             print("0 flag!")
             assert(flag == 0)
 
-        # print("fps: ", clock.fps())
+        print("fps: ", clock.fps())
 
         uart.write(msg)
         if uart.any():
