@@ -1,11 +1,32 @@
+# Auto detect the camera type
+import sensor
 NICLA = 1
 OPENMV = 2
-board = OPENMV
+board = NICLA
+if sensor.get_id() == sensor.GC2145:
+    board = NICLA
+elif sensor.get_id() == sensor.OV5640:
+    board = OPENMV
+
+# framesize setup, nicla cannot handle anything above HQVGA
+# openmv, on the other hand, is recommended to run with QVGA
+FRAME_SIZE = sensor.QVGA
+# framesize setup
+if board == NICLA:
+    FRAME_SIZE = sensor.HQVGA
+FRAME_PARAMS = None
+if FRAME_SIZE == sensor.VGA:
+    FRAME_PARAMS = [0, 0, 640, 480] # Upper left corner x, y, width, height
+elif FRAME_SIZE == sensor.HVGA:
+    FRAME_PARAMS = [0, 0, 480, 320]
+elif FRAME_SIZE == sensor.QVGA:
+    FRAME_PARAMS = [0, 0, 320, 240]
+elif FRAME_SIZE == sensor.HQVGA:
+    FRAME_PARAMS = [0, 0, 240, 160]
 
 import time
 import micropython
 import array
-import sensor
 if board == NICLA:
     from pyb import UART, LED
 elif board == OPENMV:
@@ -17,35 +38,37 @@ import math
 from machine import Pin
 import omv
 import random
-import asyncio
 from ulab import numpy as np
 
-# night mode:
+# night mode for openmv, what does it do???
 if board == OPENMV:
     sensor.ioctl(sensor.IOCTL_SET_NIGHT_MODE, False)
 
-# manual white balance - to be used with *get_gains.py* in the repository
-# - see RGB gain readings in the console
-R_GAIN, G_GAIN, B_GAIN = [62, 60.5, 64] #[64, 65, 83]
+########## NOTE: MACROS for balloon detection #############
+# manual white balance for balloon detection
+# for NiclaVision, to be used with *get_gains.py* in the repository
+# for OpenMV see RGB gain readings in the console
+R_GAIN, G_GAIN, B_GAIN = [62, 60, 65] #[64, 65, 83]
 
-""" MACROS for balloon detection """
 # Grid setup
 N_ROWS = 12
 N_COLS = 16
 
-# Probablistic filter for detection
+# Probablistic filter for balloon detection
 FILTER = True
 L_MAX = 10
 L_MIN = -6
 
-# print the stats at the upper left corner - for balloon color data collection
+# print the stats in a 3x3 cell - for balloon color data collection
 PRINT_CORNER = False
 PLOT_METRIC = True
 
 # whether combine detction of green and purple as target balloons
+# setting to False makes the detector to ignore colors other than the currently tracked one
 COMBINE_TARGETS = False
 
-# Color distribution - From the data analysis
+# Color distribution - From the data analysis on balloon detection
+# to be used with
 COLOR_DATA = {
     "purple": [[12.81815578465063, -22.79954180985109] ,  [[0.16660980418172636, 0.07742479476144622], [0.0774247947614462, 0.04503710442815662]]],
     "green": [[-18.423179565383148, 13.264582539077391] ,  [[0.01947907321188221, 0.02231663705037393], [0.02231663705037393, 0.03995214702238352]]],
@@ -62,7 +85,7 @@ COLOR_DATA = {
 
 
 # color detection sensitivities:
-# [0]: higher value for more sensitive detection
+# [0]: higher value for more sensitive detection that includes a wider range of colors
 # [1]: for filtering out uniform colors such as a light source, higher -> less positive detection
 # [2]: for filtering out messy background/environment, lower -> less positive detection
 COLOR_SENSITIVITY = {
@@ -72,10 +95,10 @@ COLOR_SENSITIVITY = {
     "red": [2.0, 5.0, 30.0]
 }
 
-# range of the L channel values that guarantee valid detection
-L_RANGE = [4, 80]
+# range of the Lumen channel values that guarantee valid detection
+L_RANGE = [4, 80] # we do not want anything too dark or too bright TODO: make it different for each color
 
-# the minimum value of the maximum cell that we consider a successful detection
+# the minimum value given by a cell that we consider a positive detection
 COLOR_CONFIDENCE = 0.3
 
 # target balloon colors {color id: (RGB value for visulization)}
@@ -85,7 +108,7 @@ COLOR_TARGET = {"purple": (255,0,255),
 # peer blimp color
 COLOR_PEER = {"red": (255, 0, 0)}
 
-# parameters for removing noises and neighbor colors
+# parameters for removing noisy neighbor colors
 NEIGHBOR_REMOVAL = False
 NEIGHBOR_REMOVAL_FACTOR = 1.3
 # NEIGHBOR FORMAT: {$neighbor: ($target, RGB value for visulization)}
@@ -99,11 +122,12 @@ MAX_LOST_FRAME_GOAL = 10   # maximum number of frames without a positive goal de
 MOMENTUM = 0.0 # keep the tracking result move if the detection is momentarily lost
 
 # action kernel setup
-FILTER_KERNEL = False #TODO: using LogOdd filter-based kernel
+FILTER_KERNEL = False #TODO (low priority): using LogOdd filter-based kernel
 KERNEL_SIZE = 5 # a n x n kernel that summarizes the possibility scores inside to give the most
                 # approachable detection, for target balloon detections only
 KERNEL_CENTER_EMPH = 3 # how much weight we want the center of the kernel to count
 kernel_scale = KERNEL_SIZE ** 2 + KERNEL_CENTER_EMPH - 1
+# setting up the kernel matrix
 kernel_matrix = []
 for i in range(KERNEL_SIZE):
     kernel_row = []
@@ -114,35 +138,37 @@ for i in range(KERNEL_SIZE):
             kernel_row.append(1)
     kernel_matrix.append(kernel_row)
 
-# Performance profiling
+# Performance profiling - to debug and test. DO NOT enable during full-robot test
 PROFILING = False
-CRAZY_RANDOM_OPTIMIZATION = False
-OPTIMIZATION_LEVEL = 0.2
-RANDOM_DACAY = 0.5*2*OPTIMIZATION_LEVEL
+# randomly skip the detection in a cell
+CRAZY_RANDOM_OPTIMIZATION = False # TODO: not implemented with numpy batch processing yet
+OPTIMIZATION_LEVEL = 0.2 # the higher, the faster, the less accurate
+RANDOM_DACAY = 0.5*2*OPTIMIZATION_LEVEL # if we skip the detection of a cell, its confidence of a
+                                        # positive detection decays exponentially
 
-# MACROS for goal detection
-NORM_LEVEL = 2  # Default to use L2 norm, change to L1 to reduce computation
+
+########## NOTE: MACROS for goal detection #############
+NORM_LEVEL = 2  # Default to use 2-norm, change to 1 to reduce computation
 MAX_FEATURE_DIST = 32767  # The maximum feature distance
+# TODO: the following 4 parameters are questionable, viewing from now
+# they basically control the motion speed of the tracking roi in the precense of a new/lost detection
+# whenever the detection is lost on a frame, a nonzero `FF_POSITION` and `FF_SIZE`
+# will try to expand the tracking roi to the entire frame, anchored in the frame center
+# whenever a new detection is available, a nonzero `GF_POSITION` and `GF_SIZE`
+# will try move the tracking roi to the detection smoothly
 FF_POSITION = 0.0 # The forgetting factor for the position
 FF_SIZE = 0.0 # The forgetting factor for the size
 GF_POSITION = 0.3 # The gain factor for the position
 GF_SIZE = 0.3 # The gain factor for the size
+# setting FF_POSITION, FF_SIZE to 0 and GF_POSITION, GF_SIZE to 1
+# will make the tracking identical to the current detection
 
-FRAME_SIZE = sensor.QVGA
-FRAME_PARAMS = None
-if FRAME_SIZE == sensor.VGA:
-    FRAME_PARAMS = [0, 0, 640, 480] # Upper left corner x, y, width, height
-elif FRAME_SIZE == sensor.HVGA:
-    FRAME_PARAMS = [0, 0, 480, 320]
-elif FRAME_SIZE == sensor.QVGA:
-    FRAME_PARAMS = [0, 0, 320, 240]
-elif FRAME_SIZE == sensor.HQVGA:
-    FRAME_PARAMS = [0, 0, 240, 160]
-
-frame_rate = 80 # target framerate that is a lie
+frame_rate = 80 # max frame rate we are targetting at
+# the two color scheme is to deal with the GMU eaglebank arena's weird color arrangement
 TARGET_ORANGE = [(39, 58, 4, 24, 12, 41)] #(12, 87, -9, 62, 15, 50)
 TARGET_COLOR2 = [(56, 76, -36, -15, 29, 58)]
-TARGET_YELLOW = [(63, 90, -32, -12, 28, 54)]#[(38, 92, -25, -5, 22, 50)]
+
+TARGET_YELLOW = [(63, 95, -39, -17, 27, 53)]#[(38, 92, -25, -5, 22, 50)]
 TARGET_COLOR = TARGET_YELLOW
 WAIT_TIME_US = 1000000//frame_rate
 
@@ -150,7 +176,7 @@ SATURATION = 96 # global saturation for goal detection mode - not affected by AD
 CONTRAST = 40 # global contrast for goal detection mode - not affected by ADVANCED_SENSOR_SETUP, defeult 48
 ADVANCED_SENSOR_SETUP = False # fine-tune the sensor for goal
 
-#""" Balloon grid detection classes and functions """
+################### NOTE: Balloon grid detection classes and functions #######################
 # color confidence filter
 class LogOddFilter:
     def __init__(self, row, col, p_det=0.99, p_ndet=0.01, p_x=0.5):
@@ -186,6 +212,8 @@ class LogOddFilter:
         return self.P
 
 
+# A Mahalanobis Distance Calculator based on integer arithematics
+# Deprecataed as it is no faster than ulab numpy
 class MahalanobisDistanceCalculator:
     def __init__(self, mu, sigma_inv):
         self.SCALE = 1<<9          # Scaling factor for mu and point
@@ -193,7 +221,6 @@ class MahalanobisDistanceCalculator:
         self.mu_int = array.array('i', [int(x * self.SCALE) for x in mu])
         # Flatten sigma_inv to a 1D array and scale to integers
         self.sigma_inv_int_flat = array.array('i', [int(x * self.SCALE) for row in sigma_inv for x in row])
-
 
     @micropython.viper
     def _distance_mahalanobis(self, point_int) -> int:
@@ -259,7 +286,7 @@ class ColorDetector:
             self.coefficient = 1 / math.sqrt(2*math.pi) * math.sqrt(sigma_inv[0][0] * sigma_inv[1][1] - sigma_inv[1][0] * sigma_inv[0][1])
             print("det", self.coefficient)
             self.decay = decay
-            self.calculator = MahalanobisDistanceCalculator(mu, sigma_inv)
+            self.calculator = None # MahalanobisDistanceCalculator(mu, sigma_inv)
 
         self.metric = [0. for _ in range(N_COLS*N_ROWS)]
         # Filter
@@ -301,7 +328,7 @@ class ColorDetector:
 
 
     def batch_distance_mahalanobis(self, stats):
-        # Compute the Mahalanobis distance between a set of points and a distribution.
+        # Compute the Mahalanobis distance between a set of points and a distribution in batch, np style.
         stats_mean_ab = stats[:, 1:3]
         diff_mean_ab = stats_mean_ab - self.mu_ndarray
         # Compute the Mahalanobis distance in batch
@@ -311,6 +338,7 @@ class ColorDetector:
         return mahalanobis_sq
 
 
+    # deprecated
     def _distance_mahalanobis_viper(self, point):
         # Compute the Mahalanobis distance between a point and a distribution.
         # This is the most advanced optimization-wise implementation.
@@ -804,8 +832,9 @@ class BalloonTracker:
         return [x_roi, y_roi, w_roi, h_roi, x_value, y_value, w_roi, h_roi, 0.0], self.flag | 0x40
 
 
-""" Goal detection classes and functions """
-# a moving ROI that shrinks towards a current detection and expands to the framesize without an active detection
+################### NOTE: Goal detection classes and functions ###################
+# a moving ROI that shrinks towards a current detection
+# and expands to the framesize without an active detection
 class MemROI:
     def __init__(self, frame_params:list = FRAME_PARAMS,
                  min_windowsize:int=20, ffp:float=FF_POSITION, ffs:float=FF_SIZE,
@@ -826,13 +855,8 @@ class MemROI:
         self.gfp = gfp
         self.gfs = gfs
 
-
     def _clamp(self)->None:
-        """
-        @description: Clamp the ROI to be within the frame.
-        @param       {*} self:
-        @return      {*} None
-        """
+        # @description: Clamp the ROI to be within the frame.
         # Ensure the ROI's top-left corner is within the bounds.
         self.roi[0] = max(self.frame_params[0], self.roi[0])
         self.roi[1] = max(self.frame_params[1], self.roi[1])
@@ -843,23 +867,17 @@ class MemROI:
 
 
     def _center(self, rect:list)->tuple:
-        """
-        @description: Calculate the center of the rectangle.
-        @param       {*} self: -
-        @param       {list} rect: The rectangle to be calculated [Upper left corner x, y, w, h]
-        @return      {tuple} The center of the rectangle
-        """
-        if len(rect) != 4:
-            raise ValueError("Cannot calculate the center of the rectangle! The rectangle must be in the form of [x0, y0, w, h]")
+        # @description: Calculate the center of the rectangle.
+        # @param {list} rect: The rectangle to be calculated [Upper left corner x, y, w, h]
+        # @return {tuple} The center of the rectangle
         return (rect[0] + rect[2] / 2, rect[1] + rect[3] / 2)
 
     def _map(self, rect1:list, rect2:list, flag:int)->list:
         # @description: Map rect1 to rect2 by the forgetting factors.
-        # @param       {*} self:
-        # @param       {list} rect1: Rectangle to be mapped [x0, y0, w, h]
-        # @param       {list} rect2: Rectangle to be mapped to [x0, y0, w, h]
-        # @param       {int} flag: 0 for forgetting factor, 1 for gain factor
-        # @return      {list} The mapped rectangle [x0, y0, w, h]
+        # @param {list} rect1: Rectangle to be mapped [x0, y0, w, h]
+        # @param {list} rect2: Rectangle to be mapped to [x0, y0, w, h]
+        # @param {int} flag: 0 for forgetting factor, 1 for gain factor
+        # @return {list} The mapped rectangle [x0, y0, w, h]
         # Get the centers of the rectangles
         cx1, cy1 = self._center(rect1) # Center x, y
         cx2, cy2 = self._center(rect2) # Center x, y
@@ -886,12 +904,8 @@ class MemROI:
 
 
     def update(self, new_roi:list=None)->None:
-
-#        @description: Update the ROI with a new ROI.
-#        @param       {*} self:
-#        @param       {list} new_roi: The new roi to map to [x0, y0, w, h]
-#        @return      {*} None
-
+        # @description: Update the ROI with a new ROI.
+        # @param {list} new_roi: The new roi to map to [x0, y0, w, h]
         if not new_roi: # No new detection is found in the maximum tracking window
             self.roi = self._map(self.roi, self.frame_params, 0) # Map the ROI to the frame by the forgetting factors
         else:
@@ -905,19 +919,12 @@ class MemROI:
         self._clamp() # Clamp the ROI to be within the frame
 
     def reset(self)->None:
-#        """
-#        @description: Reset the ROI to the frame.
-#        @param       {*} self:
-#        @return      {*} None
-#        """
+        # @description: Reset the ROI to the frame.
         self.roi = self.frame_params
 
     def get_roi(self)->list:
-#        """
-#        @description: Get the ROI.
-#        @param       {*} self:
-#        @return      {list} The ROI [x0, y0, w, h]
-#        """
+        # @description: Get the ROI.
+        # @return      {list} The ROI [x0, y0, w, h]
         return [math.ceil(value)+1 for value in self.roi]
 
 
@@ -943,17 +950,16 @@ class ShapeDetector:
 
     def create_triangle(self, gridsize):
         # Allocate frame buffer for triangle
-    #        img = sensor.alloc_extra_fb(gridsize, gridsize, sensor.BINARY)
-    #        # Draw an isosceles triangle
-    #        img.draw_line(gridsize // 2, gridsize - 1, 0, 0, color=255, thickness=1)
-    #        img.draw_line(gridsize // 2, gridsize - 1, gridsize - 1, 0, color=255, thickness=1)
-    #        img.draw_line(0, 0, gridsize - 1, 0, color=255, thickness=2)
+        # img = sensor.alloc_extra_fb(gridsize, gridsize, sensor.BINARY)
+        # # Draw an isosceles triangle
+        # img.draw_line(gridsize // 2, gridsize - 1, 0, 0, color=255, thickness=1)
+        # img.draw_line(gridsize // 2, gridsize - 1, gridsize - 1, 0, color=255, thickness=1)
+        # img.draw_line(0, 0, gridsize - 1, 0, color=255, thickness=2)
         img = sensor.alloc_extra_fb(gridsize, gridsize, sensor.BINARY)
         # Flipped isosceles triangle
         img.draw_line(gridsize // 2, 0, 0, gridsize - 1, color=255, thickness=1)  # Apex to left base
         img.draw_line(gridsize // 2, 0, gridsize - 1, gridsize - 1, color=255, thickness=1)  # Apex to right base
         img.draw_line(0, gridsize - 1, gridsize - 1, gridsize - 1, color=255, thickness=1)  # Base line
-
         return img
 
 
@@ -968,12 +974,14 @@ class ShapeDetector:
             img.draw_circle((gridsize) // 2 -1, (gridsize) // 2 , radius, color=255, fill=False)
         return img
 
+
     def create_square(self, gridsize):
         # Allocate frame buffer for square
         img = sensor.alloc_extra_fb(gridsize, gridsize, sensor.BINARY)
         # Draw a square
         img.draw_rectangle(0, 0, gridsize-0, gridsize-0, color=255, fill=False, thickness=1)
         return img
+
 
     def downsample_and_average(self, roi_img):
         # Custom function to process and downsample the ROI
@@ -1002,8 +1010,8 @@ class ShapeDetector:
                 mean_val = stats.mean()
                 binary_val = 1 if mean_val > 60 else 0  # Threshold the mean to create a binary image
                 self.binary_image.set_pixel(j, i, binary_val)
-
         return self.binary_image
+
 
     def detect_shape(self, roi_img):
         mean_pooled_img = self.downsample_and_average(roi_img.to_grayscale())
@@ -1012,14 +1020,14 @@ class ShapeDetector:
         start = (self.gridsize - center_size) // 2
         end = start + center_size
         center_sum = sum(mean_pooled_img.get_pixel(j, i) for i in range(start, end) for j in range(start, end))
-        print(center_sum)
+        # print(center_sum)
         if (center_sum >= center_size**2 * .66):
             return "not"
         tot_sum = sum(mean_pooled_img.get_pixel(j, i) for i in range(0, self.gridsize) for j in range(0, self.gridsize))
         if (tot_sum == 0):
             return "not"
 
-#         Prepare for shape comparison
+        # Prepare for shape comparison
         overlap_triangle = 0
         overlap_circle = 0
         overlap_square = 0
@@ -1034,16 +1042,8 @@ class ShapeDetector:
                         overlap_circle += 1
                     if self.img_square.get_pixel(j, i) == 1:
                         overlap_square += 1
-#                else:
-#                    if self.img_triangle.get_pixel(j, i) == 1:
-#                        overlap_triangle -= 1
-#                    if self.img_circle.get_pixel(j, i) == 1:
-#                        overlap_circle -= 1
-#                    if self.img_square.get_pixel(j, i) == 1:
-#                        overlap_square -= 1
 
-
-        print("Overlap Triangle:", overlap_triangle/self.tot_tri, "Overlap Circle:", overlap_circle/self.tot_cir, "Overlap Square:", overlap_square/self.tot_squ)
+        # print("Overlap Triangle:", overlap_triangle/self.tot_tri, "Overlap Circle:", overlap_circle/self.tot_cir, "Overlap Square:", overlap_square/self.tot_squ)
 
         # Identify which shape it is based on maximum overlap
         if overlap_triangle/self.tot_tri > overlap_circle/self.tot_cir and overlap_triangle/self.tot_tri > overlap_square //self.tot_squ:
@@ -1052,12 +1052,9 @@ class ShapeDetector:
             return "square"
         else:
             return "circle"
-#            corner_count = sum(1 for i in range(self.gridsize) for j in range(self.gridsize) if mean_pooled_img.get_pixel(j, i) == 1)
-#            if corner_count >= 3:
-#                return "square"
-#            return "not" #should be circle
 
-    def extract_valid_roi(self, img, blob, current_thresholds, min_edge_distance=0):
+
+    def extract_valid_roi(self, img, blob, thresholds, min_edge_distance=0):
         """ Extracts and validates the ROI from the given blob based on minimum distance to the edge """
         left_distance = blob.x()
         right_distance = img.width() - (blob.x() + blob.w())
@@ -1077,12 +1074,13 @@ class ShapeDetector:
                 if roi_height > img.height()/3:
                     y_scale = 1- roi_height/img.height()
                 try:
-                    roi_img = img.copy(x_scale = x_scale, y_scale = y_scale, roi=roi).binary(current_thresholds)
+                    roi_img = img.copy(x_scale = x_scale, y_scale = y_scale, roi=roi).binary(thresholds)
                 except:
                     return None, None
                 return roi_img, roi
 
         return None, None  # Return None if no valid ROI found
+
 
 # a moving blob object that memorizes previous blobs detected
 class CurBLOB:
@@ -1094,16 +1092,12 @@ class CurBLOB:
         window_size=4,
         blob_id=0,
     ) -> None:
-        """
-        @description: Constructor of the blob object that memorizes previous states.
-        @param       {*} self:
-        @param       {*} initial_blob: The first blob appeared after the reset
-        @param       {int} norm_level: The norm level for the feature distance (default to L2)
-        @param       {int} feature_dist_threshold: The threshold for the feature distance (default to 100)
-        @param       {*} window_size: The window size for the moving average (default to 3)
-        @param       {*} blob_id: The id of the blob
-        @return      {*} None
-        """
+        # @description: Constructor of the blob object that memorizes previous states.
+        # @param {*} initial_blob: The first blob appeared after the reset
+        # @param {int} norm_level: The norm level for the feature distance (default to L2)
+        # @param {int} feature_dist_threshold: The threshold for the feature distance (default to 100)
+        # @param {*} window_size: The window size for the moving average (default to 3)
+        # @param {*} blob_id: The id of the blob
         if initial_blob:
             self.blob_history = [initial_blob]
             self.feature_vector = [
@@ -1127,22 +1121,16 @@ class CurBLOB:
         self.id = blob_id  # id of the blob
 
     def reset(self) -> None:
-        """
-        @description: Reset the current blob
-        @param       {*} self:
-        @return      {*} None
-        """
+        # @description: Reset the current blob
         self.blob_history = None
         self.feature_vector = None
         self.untracked_frames = 0
 
     def reinit(self, blob: image.blob) -> None:
-        """
-        @description: Reinitialize the current blob with a new blob
-        @param       {*} self:
-        @param       {image.blob} blob: The new blob to be reinitialized with
-        @return      {*} None
-        """
+        # @description: Reinitialize the current blob with a new blob
+        # @param       {*} self:
+        # @param       {image.blob} blob: The new blob to be reinitialized with
+        # @return      {*} None
         self.blob_history = [blob]  # reset the blob history
         self.feature_vector = [
             blob.x(),
@@ -1154,12 +1142,10 @@ class CurBLOB:
         self.untracked_frames = 0  # reset the untracked frames
 
     def compare(self, new_blob: image.blob) -> int:
-        """
-        @description: Compare the feature distance between the current blob and a new blob
-        @param       {*} self:
-        @param       {image.blob} new_blob: The new blob to be compared with
-        @return      {int} The feature distance between the current blob and the new blob
-        """
+        # @description: Compare the feature distance between the current blob and a new blob
+        # @param {*} self:
+        # @param {image.blob} new_blob: The new blob to be compared with
+        # @return {int} The feature distance between the current blob and the new blob
         new_feature = (
             new_blob.x(),
             new_blob.y(),
@@ -1180,12 +1166,9 @@ class CurBLOB:
             )
 
     def update(self, list_of_blob: list) -> list:
-        """
-        @description: Update the current blob with the best candidate blob in the list of blobs
-        @param       {*} self:
-        @param       {list} list_of_blob: The list of blobs to be compared with
-        @return      {list} The rectangle of the best candidate blob
-        """
+        # @description: Update the current blob with the best candidate blob in the list of blobs
+        # @param {list} list_of_blob: The list of blobs to be compared with
+        # @return {list} The rectangle of the best candidate blob
         if list_of_blob is None:  # For the case that no blob is detected
             self.untracked_frames += 1
             return None
@@ -1245,30 +1228,27 @@ class CurBLOB:
             return None
 
 
-# base class for a tracking bounding box
-class Tracker:
+# tracking bounding box for the goal
+class GoalTracker:
     def __init__(
         self,
         thresholds: list,
         clock: time.clock,
         show: bool = True,
-        max_untracked_frames: int = 0,
+        max_untracked_frames: int = 8,
+        LEDpin: str = "PG12",
+        sensor_sleep_time: int = 50000,
     ) -> None:
-        """
-        @description: Constructor of the Tracker class
-        @param       {*} self:
-        @param       {list} thresholds: The list of thresholds for goal or balloon
-        @param       {time} clock: The clock to track the time
-        @param       {bool} show: Whether to show the image (default: True)
-        @param       {int} max_untracked_frames: The maximum number of untracked frames until the tracker resets (default: 0)
-        @param       {bool} dynamic_threshold: Whether to use dynamic threshold (default: False)
-        @param       {int} threshold_update_rate: The rate of threshold update (default: 0)
-        @return      {*} None
-        """
-        self.original_thresholds = [threshold for threshold in thresholds]  # Deep copy the thresholds
-        self.current_thresholds = [threshold for threshold in thresholds]  # Deep copy the thresholds
-        self.clock = clock  # The clock to track the time
-        self.show = show  # Whether to show the image
+        # @param {list} thresholds: The list of thresholds for the goal
+        # @param {time} clock: The clock to track the time
+        # @param {bool} show: Whether to show the image (default: True)
+        # @param {int} max_untracked_frames: The maximum number of untracked frames until the tracker resets (default: 5)
+        # @param {str} LEDpin: The pin of the IR LED (default: "PG12")
+        # @param {int} sensor_sleep_time: The time to sleep after the sensor captures a new image (default: 50000)
+        # @param {int} threshold_update_rate: The rate of threshold update (default: 0)
+        self.thresholds = thresholds
+        self.clock = clock
+        self.show = show
         self.max_untracked_frames = max_untracked_frames  # The maximum number of untracked frames
         if board == OPENMV:
             self.r_LED = LED("LED_RED")
@@ -1278,131 +1258,6 @@ class Tracker:
             self.r_LED = LED(1)  # The red LED
             self.g_LED = LED(2)  # The green LED
             self.b_LED = LED(3)  # The blue LED
-
-    def draw_initial_blob(self, img: image, blob: image.blob, sleep_us: int = 50000) -> None:
-        """
-        @description:
-        @param       {image} img: The image to be drawn on
-        @param       {image.blob} blob: The blob to be drawn
-        @param       {int} sleep_us: The time to sleep after drawing the blob (default: 500000)
-        @return      {*} None
-        """
-        if not blob or sleep_us < 41000:
-            # No need to show anything if we do not want to show
-            # sleep_us is beyond human's 24fps classy eyes' capability
-            return
-        else:
-            img.draw_edges(blob.min_corners(), color=(255, 0, 0))
-            img.draw_line(blob.major_axis_line(), color=(0, 255, 0))
-            img.draw_line(blob.minor_axis_line(), color=(0, 0, 255))
-            img.draw_rectangle(blob.rect())
-            img.draw_cross(blob.cx(), blob.cy())
-            img.draw_keypoints([(blob.cx(), blob.cy(), int(math.degrees(blob.rotation())))], size=20)
-            # Sleep for 500ms for initial blob debut
-            time.sleep_us(sleep_us)
-
-    def _find_max(self, nice_blobs: list) -> image.blob:
-        """
-        @description: Find the blob with the largest area
-        @param       {list} nice_blobs: The list of blobs to be compared
-        @return      {image.blob} The blob with the largest area
-        """
-        max_blob = None
-        max_area = 0
-        for blob in nice_blobs:
-            if blob.area() > max_area:
-                max_blob = blob
-                max_area = blob.pixels()
-        return max_blob
-
-    def _comp_new_threshold(self, statistics: image.statistics, mul_stdev: float = 3) -> tuple:
-        # @description: Compute the new threshold based on the color statistics
-        # @param       {image} statistics: The color statistics of the blob
-        # @param       {float} mul_stdev: The multiplier of the standard deviation
-        # @return      {tuple} The new threshold
-        # WARNING: Could be deprecated
-        L_mean = statistics.l_mean()
-        L_stdev = statistics.l_stdev()
-        A_mean = statistics.a_mean()
-        A_stdev = statistics.a_stdev()
-        B_mean = statistics.b_mean()
-        B_stdev = statistics.b_stdev()
-
-        new_threshold = (
-            L_mean - mul_stdev * L_stdev,
-            L_mean + mul_stdev * L_stdev,
-            A_mean - mul_stdev * A_stdev,
-            A_mean + mul_stdev * A_stdev,
-            B_mean - mul_stdev * B_stdev,
-            B_mean + mul_stdev * B_stdev,
-        )
-        return new_threshold
-
-    def _comp_weighted_avg(self, new_vec: tuple, orig_vec: tuple, w1: float = 0.1, w2: float = 0.9) -> tuple:
-        # @description: Compute the weighted average of two vectors
-        # @param       {tuple} new_vec: The new vector
-        # @param       {tuple} orig_vec: The original vector to be averaged with
-        # @param       {float} w1: The weight of the new vector (default: 0.1)
-        # @param       {float} w2: The weight of the original vector (default: 0.9)
-        # @return      {tuple} The weighted average of the two vectors
-        # WARNING: Could be deprecated
-        weighted_avg = [int(w1 * new_vec[i] + w2 * orig_vec[i]) for i in range(len(new_vec))]
-        return tuple(weighted_avg)
-
-    def update_leds(self, tracking: bool = False, detecting: bool = False, lost: bool = True) -> None:
-#        """
-#        @description: Update the LEDs state
-#        @param       {*} self:
-#        @param       {bool} tracking: If we are tracking the blob in the roi
-#        @param       {bool} detecting: If we are actually detecting the blob
-#        @param       {bool} lost: If we lost the blob
-#        @return      {*} None
-#        """
-        if tracking and detecting and not lost:
-            self.g_LED.on()
-            self.r_LED.on()
-            self.b_LED.on()
-        elif tracking and not detecting and not lost:
-            self.g_LED.on()
-            self.b_LED.on()
-            self.r_LED.on()
-        elif lost:
-            self.g_LED.on()
-            self.b_LED.on()
-            self.r_LED.on()
-        else:
-            print("Error: Invalid LED state")
-            pass
-
-# tracking bounding box for the goal
-class GoalTracker(Tracker):
-    def __init__(
-        self,
-        thresholds: list,
-        clock: time.clock,
-        show: bool = True,
-        max_untracked_frames: int = 8,
-        dynamic_threshold: bool = False,
-        threshold_update_rate: float = 0,
-        LEDpin: str = "PG12",
-        sensor_sleep_time: int = 50000,
-    ) -> None:
-        # @param {list} thresholds: The list of thresholds for the goal
-        # @param {time} clock: The clock to track the time
-        # @param {bool} show: Whether to show the image (default: True)
-        # @param {int} max_untracked_frames: The maximum number of untracked frames until the tracker resets (default: 5)
-        # @param {bool} dynamic_threshold: Whether to use dynamic threshold (default: False)
-        # @param {float} threshold_update_rate: The rate of threshold update (default: 0)
-        # @param {str} LEDpin: The pin of the IR LED (default: "PG12")
-        # @param {int} sensor_sleep_time: The time to sleep after the sensor captures a new image (default: 50000)
-        super().__init__(
-            thresholds,
-            clock,
-            show,
-            max_untracked_frames,
-            dynamic_threshold,
-            threshold_update_rate,
-        )
         self.shape_detector = ShapeDetector(gridsize=9)
         self.num_blob_hist = 0
         self.LED_STATE = False
@@ -1427,6 +1282,61 @@ class GoalTracker(Tracker):
         self.shape_detector.__del__()
 
 
+    def _find_max(self, nice_blobs: list) -> image.blob:
+        # @description: Find the blob with the largest area
+        # @param {list} nice_blobs: The list of blobs to be compared
+        # @return {image.blob} The blob with the largest area
+        max_blob = None
+        max_area = 0
+        for blob in nice_blobs:
+            if blob.area() > max_area:
+                max_blob = blob
+                max_area = blob.pixels()
+        return max_blob
+
+
+    def update_leds(self, tracking: bool = False, detecting: bool = False, lost: bool = True) -> None:
+        # @description: Update the LEDs state
+        # @param {bool} tracking: If we are tracking the blob in the roi
+        # @param {bool} detecting: If we are actually detecting the blob
+        # @param {bool} lost: If we lost the blob
+        if tracking and detecting and not lost:
+            self.g_LED.on()
+            self.r_LED.on()
+            self.b_LED.on()
+        elif tracking and not detecting and not lost:
+            self.g_LED.on()
+            self.b_LED.on()
+            self.r_LED.on()
+        elif lost:
+            self.g_LED.on()
+            self.b_LED.on()
+            self.r_LED.on()
+        else:
+            print("Error: Invalid LED state")
+            pass
+
+
+    def draw_initial_blob(self, img: image, blob: image.blob, sleep_us: int = 50000) -> None:
+        # @description:
+        # @param {image} img: The image to be drawn on
+        # @param {image.blob} blob: The blob to be drawn
+        # @param {int} sleep_us: The time to sleep after drawing the blob (default: 500000)
+        if not blob or sleep_us < 41000:
+            # No need to show anything if we do not want to show
+            # sleep_us is beyond human's 24fps classy eyes' capability
+            return
+        else:
+            img.draw_edges(blob.min_corners(), color=(255, 0, 0))
+            img.draw_line(blob.major_axis_line(), color=(0, 255, 0))
+            img.draw_line(blob.minor_axis_line(), color=(0, 0, 255))
+            img.draw_rectangle(blob.rect())
+            img.draw_cross(blob.cx(), blob.cy())
+            img.draw_keypoints([(blob.cx(), blob.cy(), int(math.degrees(blob.rotation())))], size=20)
+            # Sleep for 500ms for initial blob debut
+            time.sleep_us(sleep_us)
+
+
     def track(self, edge_removal: bool = True) -> tuple:
         # @description: Track the blob with dynamic threshold and ROI
         # @param       {*} self:
@@ -1449,10 +1359,9 @@ class GoalTracker(Tracker):
                 self.num_blob_hist = 1
                 self.tracked_blob.reinit(reference_blob)  # Initialize the tracked blob with the reference blob
                 # median_lumen = statistics.median()
-                # if median_lumen <= self.current_thresholds[0][1]:
+                # if median_lumen <= self.thresholds[0][1]:
                 #     # solid!
                 #     flag |= 0x04
-                self.update_thresholds(statistics)  # Update the dynamic threshold
                 self.roi.update(self.tracked_blob.feature_vector[0:4])  # Update the ROI
                 self.update_leds(tracking=True, detecting=True, lost=False)
                 # color_id = self.tracked_blob.blob_history[-1].code()
@@ -1479,7 +1388,6 @@ class GoalTracker(Tracker):
             # self.roi.reset() (NOTE: ROI is not reset since we are assuming that the blob tends to appear in the same region when it is lost)
             print("Goal lost")
             self.num_blob_hist = 0
-            self.update_thresholds(reset=True)
             self.flag = 0x80
             return None, self.flag
         elif self.flag == 0x80 and self.num_blob_hist == 2:
@@ -1508,33 +1416,31 @@ class GoalTracker(Tracker):
             shurnk_roi[3] //= 2
             statistics = img.get_statistics(roi=shurnk_roi)
             # median_lumen = statistics.median()
-            # if median_lumen <= self.current_thresholds[0][1]:
+            # if median_lumen <= self.thresholds[0][1]:
             #     # solid!
             #     flag |= 0x04
-            self.update_thresholds(statistics)
             self.update_leds(tracking=True, detecting=True, lost=False)
         else:
             # If we do not discover the reference blob
             self.update_leds(tracking=True, detecting=False, lost=False)
             self.roi.update()
-            self.update_thresholds(recall=True)
+
         if self.show:
             x0, y0, w, h = [math.floor(self.tracked_blob.feature_vector[i]) for i in range(4)]
             img.draw_rectangle(x0, y0, w, h, color=(255, 0, 0))
             img.draw_rectangle(self.roi.get_roi(), color=(128, 128, 0))
             img.flush()
+
         return self.tracked_blob.feature_vector, self.flag
 
     def find_reference(
         self,
         time_show_us: int = 50000,
     ) -> tuple:
-#        """
-#        @description: Find the a good blob to be the reference blob
-#        @param       {*} self:
-#        @param       {int} time_show_us: The time to show the blob on the screen
-#        @return      {tuple} The reference blob and its color statistics
-#        """
+        # @description: Find the a good blob to be the reference blob
+        # @param {*} self:
+        # @param {int} time_show_us: The time to show the blob on the screen
+        # @return {tuple} The reference blob and its color statistics
         omv.disable_fb(False)
 
         img, nice_blobs = self.detect(isColored=True, edge_removal=False)
@@ -1560,7 +1466,9 @@ class GoalTracker(Tracker):
         omv.disable_fb(True)  # No show on screen
         # Get an extra frame buffer and take a snapshot
         self.clock.tick()
-        ##################################################################
+
+
+        ############ NOTE: the following part is the discarded IR blinking method ############
         if False:
             self.LED_STATE = True
             self.IR_LED.value(not self.LED_STATE)
@@ -1607,14 +1515,13 @@ class GoalTracker(Tracker):
             img.difference(self.extra_fb2, reverse=self.LED_STATE)
             # Remove the edge noises
 
-
             img.negate()
         else:
             self.LED_STATE = True
             img = sensor.snapshot()
 
 
-        if self.num_blob_hist > 5 and self.current_thresholds == TARGET_ORANGE:
+        if self.num_blob_hist > 5 and self.thresholds == TARGET_ORANGE:
             list_of_blob = img.find_blobs(
                 TARGET_COLOR2,
                 area_threshold=3,
@@ -1623,12 +1530,11 @@ class GoalTracker(Tracker):
                 x_stride=1,
                 y_stride=1,
                 merge=True,
-
             )
 
         else:
             list_of_blob = img.find_blobs(
-                self.current_thresholds,
+                self.thresholds,
                 area_threshold=3,
                 pixels_threshold=3,
                 margin=10,
@@ -1639,27 +1545,27 @@ class GoalTracker(Tracker):
             )
 #        largest_blob = max(list_of_blob, key=lambda b: b.area(), default=None)
 
-        #shape detection/determination
+        # shape detection/determination
 #        if largest_blob:
-#            roi_img, roi = self.shape_detector.extract_valid_roi(img, largest_blob, self.current_thresholds)
+#            roi_img, roi = self.shape_detector.extract_valid_roi(img, largest_blob, self.thresholds)
 #            if roi_img:
 #                detected_shape = self.shape_detector.detect_shape(roi_img)
 #                print("Detected Shape:", detected_shape)
 
 
-##                mean_pooled_img = self.shape_detector.downsample_and_average(roi_img)
-##                gridsize = 9
-##    #             Visually represent the data (example code)
-##                scale_x = roi[2] / gridsize
-##                scale_y = roi[3] / gridsize
-##                for i in range(gridsize):
-##                    for j in range(gridsize):
-##                        gray_value = mean_pooled_img.get_pixel(j, i) *255
-##                        rect_x = roi[0] + j * int(scale_x)
-##                        rect_y = roi[1] + i * int(scale_y)
-##                        rect_width = max(int(scale_x), 1)
-##                        rect_height = max(int(scale_y), 1)
-##                        img.draw_rectangle(rect_x, rect_y, rect_width, rect_height, color=(gray_value, gray_value, gray_value), fill=True)
+#                mean_pooled_img = self.shape_detector.downsample_and_average(roi_img)
+#                gridsize = 9
+#                # Visually represent the data (example code)
+#                scale_x = roi[2] / gridsize
+#                scale_y = roi[3] / gridsize
+#                for i in range(gridsize):
+#                    for j in range(gridsize):
+#                        gray_value = mean_pooled_img.get_pixel(j, i) *255
+#                        rect_x = roi[0] + j * int(scale_x)
+#                        rect_y = roi[1] + i * int(scale_y)
+#                        rect_width = max(int(scale_x), 1)
+#                        rect_height = max(int(scale_y), 1)
+#                        img.draw_rectangle(rect_x, rect_y, rect_width, rect_height, color=(gray_value, gray_value, gray_value), fill=True)
 #                img.draw_rectangle(largest_blob.rect(), color=(127, 0, 127))  # Highlight the blob
 #                img.draw_string(largest_blob.x(), largest_blob.y(), detected_shape, color=(255, 0, 255))
         st = "FPS: {}".format(str(round(self.clock.fps(), 2)))
@@ -1672,7 +1578,7 @@ class GoalTracker(Tracker):
 #                if self.tracked_blob != None and self.num_blob_hist > 5:
 #                    big_blobs.append(blob)
 #                else:
-                    roi_img, roi = self.shape_detector.extract_valid_roi(img, blob, self.current_thresholds)
+                    roi_img, roi = self.shape_detector.extract_valid_roi(img, blob, self.thresholds)
                     if roi_img:
 
 #                        mean_pooled_img = self.shape_detector.downsample_and_average(roi_img)
@@ -1743,32 +1649,16 @@ def init_sensor_target(tracking_type:int, framesize=FRAME_SIZE, windowsize=None)
     # Initialize sensors by updating the registers
     # for the two different purposes
     #     @param       {int} tracking_type: 0 for balloons and 1 for goals
-    #     @return      {*} None
-    #
     if tracking_type == 1:
         # goal detection sensor setup
         sensor.reset()
         sensor.set_auto_exposure(True)
         sensor.set_pixformat(sensor.RGB565)
-        sensor.set_framesize(framesize)
         if board == NICLA:
             sensor.ioctl(sensor.IOCTL_SET_FOV_WIDE, True)
             sensor.__write_reg(0xfe, 0b00000000) # change to registers at page 0
             sensor.__write_reg(0x80, 0b01111110) # [7] reserved, [6] gamma enable, [5] CC enable,
             if ADVANCED_SENSOR_SETUP:
-                sensor.__write_reg(0x80, 0b01101110)    # [7] reserved, [6] gamma enable, [5] CC enable,
-                                                        # [4] Edge enhancement enable
-                                                        # ------------------------------------------------
-                                                        # WARNING: necessary or unusable image will occur:
-                                                        # [3] Interpolation enable,
-                                                        # ------------------------------------------------
-                                                        # [2] DN enable, [1] DD enable,
-                                                        # ------------------------------------------------
-                                                        # WARNING: extremely recommended to disable:
-                                                        # [0] Lens-shading correction enable - gives you uneven
-                                                        #                                      shade in the dark
-                                                        #                                      badly!!!!!
-                                                        # ------------------------------------------------
                 sensor.__write_reg(0x81, 0b01010100)    # [7] BLK dither mode, [6] low light Y stretch enable
 
                 # ABS - anti-blur
@@ -1786,8 +1676,6 @@ def init_sensor_target(tracking_type:int, framesize=FRAME_SIZE, windowsize=None)
         elif board == OPENMV:
             pass
 
-        sensor.skip_frames(time = 1000)
-
     elif tracking_type == 0:
         # balloon detection sensor setup
         sensor.reset()
@@ -1796,7 +1684,6 @@ def init_sensor_target(tracking_type:int, framesize=FRAME_SIZE, windowsize=None)
         sensor.set_pixformat(sensor.RGB565)
         if board == NICLA:
             sensor.ioctl(sensor.IOCTL_SET_FOV_WIDE, True) # wide FOV
-        sensor.set_framesize(framesize)
 
         sensor.set_auto_whitebal(False)
         sensor.set_auto_exposure(False)
@@ -1882,7 +1769,7 @@ def init_sensor_target(tracking_type:int, framesize=FRAME_SIZE, windowsize=None)
             sensor.__write_reg(0xd3, 40)    # contrast
             sensor.__write_reg(0xd5, 0)     # luma offset
         elif board == OPENMV:
-            print(sensor.get_rgb_gain_db())
+            print("RGB gains:", sensor.get_rgb_gain_db())
             # sensor.set_saturation(3) # saturation setup is broken for openmv rt1062
             sensor.set_auto_whitebal(False, rgb_gain_db=(R_GAIN, G_GAIN, B_GAIN))
             sensor.set_auto_exposure(True)
@@ -1897,22 +1784,18 @@ def init_sensor_target(tracking_type:int, framesize=FRAME_SIZE, windowsize=None)
             sensor.__write_reg(0x5001, sensor.__read_reg(0x5001) & 0b01111111) # [2]: UV average,
                                                                                # [1]: color matrix
                                                                                # [0]: AWB
-            # Lens correction setup
-            # sensor.__write_reg(0x583E, 128) # maxmum gain, default 64
-            # sensor.__write_reg(0x583F, 8) # minimum gain, default 32
-            # sensor.__write_reg(0x5840, 24) # Minimum Q, default 24
-            # sensor.__write_reg(0x5841, 0b00000000) # [3:2] add BLC, BLC, [1:0]: manual, auto Q
 
             # enable saturation setup
             # sensor.__write_reg(0x5580, sensor.__read_reg(0x5580) | 0x02)
-            # sensor.__write_reg(0x5583, SATURATION)
-            # sensor.__write_reg(0x5584, SATURATION)
-
+            # sensor.__write_reg(0x5583, 128)
+            # sensor.__write_reg(0x5584, 128)
     else:
         raise ValueError("Not a valid sensor-detection mode!")
 
     if windowsize is not None:
         sensor.set_windowing(windowsize)
+    sensor.set_framesize(framesize)
+    sensor.skip_frames(time = 1000)
 
 # IBus communication functions
 # checksum that we can but we are not using on the ESP side for verifying data integrity
@@ -1925,6 +1808,7 @@ def checksum(arr, initial= 0):
     chA = checksum >> 8
     chB = checksum & 0xFF
     return chA, chB
+
 
 # send an ibus message array to uart, each element is 2-byte
 # for some of them we are only using 1 byte anyways
@@ -1959,8 +1843,13 @@ def mode_initialization(input_mode, mode, grid=None, detectors=None):
             thresholds = TARGET_COLOR
             init_sensor_target(tracking_type=1)
             # Find reference
+            if board == NICLA:
+                pin_str = "PG12"
+            elif board == OPENMV:
+                pin_str = "P7"
             tracker = GoalTracker(thresholds, clock,
                                   max_untracked_frames = MAX_LOST_FRAME_GOAL,
+                                  LEDpin=pin_str,
                                   sensor_sleep_time=WAIT_TIME_US)
             print("Goal mode!")
         else:
@@ -1972,21 +1861,14 @@ def mode_initialization(input_mode, mode, grid=None, detectors=None):
 if __name__ == "__main__":
     # Necessary for both modes
     clock = time.clock()
-    mode = 0 # 0 for balloon detection and 1 for goal
+    mode = 1 # 0 for balloon detection and 1 for goal
 
     # Initialize inter-board communication
     # time of flight sensor initialization
     # tof = VL53L1X(I2C(2)) # seems to interfere with the uart
 
     # Grid detection setup for balloons
-    sensor.reset()
-    sensor.set_pixformat(sensor.RGB565)
-    if board == NICLA:
-        sensor.ioctl(sensor.IOCTL_SET_FOV_WIDE, True) # wide FOV
-    sensor.set_framesize(FRAME_SIZE)
-    sensor.skip_frames(time = 1000)
-    img = sensor.snapshot()
-    grid = Grid(N_ROWS, N_COLS, img.width(), img.height())
+    grid = Grid(N_ROWS, N_COLS, FRAME_PARAMS[2], FRAME_PARAMS[3])
 
     # Initialize color detectors for target balloons, peers, and neighbors of the target balloons
     detectors = {}
@@ -2021,8 +1903,6 @@ if __name__ == "__main__":
 
     # Initializing the tracker
     mode, tracker = mode_initialization(mode, -1, grid, detectors)
-    del img
-    img = None
 
     # Initialize UART
     if board == NICLA:
