@@ -14,7 +14,6 @@ FRAME_SIZE = sensor.HQVGA
 # framesize setup
 if board == NICLA:
     FRAME_SIZE = sensor.HQVGA
-
 FRAME_PARAMS = None
 if FRAME_SIZE == sensor.VGA:
     FRAME_PARAMS = [0, 0, 640, 480] # Upper left corner x, y, width, height
@@ -49,11 +48,11 @@ if board == OPENMV:
 # manual white balance for balloon detection
 # for NiclaVision, to be used with *get_gains.py* in the repository
 # for OpenMV see RGB gain readings in the console
-R_GAIN, G_GAIN, B_GAIN = [62, 60, 83] #[64, 65, 83]
+R_GAIN, G_GAIN, B_GAIN = [61.34142, 60.206, 65.30579] #[64, 65, 83]
 
 # Grid setup
-N_ROWS = 12
-N_COLS = 16
+N_ROWS = 10
+N_COLS = 15
 
 # Probablistic filter for balloon detection
 FILTER = True
@@ -91,23 +90,23 @@ COLOR_DATA = {
 # [2]: for filtering out messy background/environment, lower -> less positive detection
 COLOR_SENSITIVITY = {
     "purple": [4.0, 5.0, 28.0],
-    "green": [2.0, 5.0, 26.0],
+    "green": [2.0, 6.0, 24.0],
     "blue": [2.0, 5.0, 30.0],
     "red": [2.0, 5.0, 30.0]
 }
 
 # range of the Lumen channel values that guarantee valid detection
-L_RANGE = [4, 80] # we do not want anything too dark or too bright TODO: make it different for each color
+L_RANGE = [10, 80] # we do not want anything too dark or too bright TODO: make it different for each color
 
 # the minimum value given by a cell that we consider a positive detection
 COLOR_CONFIDENCE = 0.3
 
 # target balloon colors {color id: (RGB value for visulization)}
-COLOR_TARGET = {"purple": (255,0,255),
-                "green": (0,255,0)}
+COLOR_TARGET = {"green": (0,255,0)} # {"purple": (255,0,255),
+                  # "green": (0,255,0)}
 
 # peer blimp color
-COLOR_PEER = {"red": (255, 0, 0)}
+COLOR_PEER = {} # {"red": (255, 0, 0)}
 
 # parameters for removing noisy neighbor colors
 NEIGHBOR_REMOVAL = False
@@ -173,7 +172,7 @@ TARGET_YELLOW = [(63, 95, -39, -17, 27, 53)]#[(38, 92, -25, -5, 22, 50)]
 TARGET_COLOR = TARGET_YELLOW
 WAIT_TIME_US = 1000000//frame_rate
 
-SATURATION = 96 # global saturation for goal detection mode - not affected by ADVANCED_SENSOR_SETUP, defeult 64
+SATURATION = 72 # global saturation for goal detection mode - not affected by ADVANCED_SENSOR_SETUP, defeult 64
 CONTRAST = 40 # global contrast for goal detection mode - not affected by ADVANCED_SENSOR_SETUP, defeult 48
 ADVANCED_SENSOR_SETUP = False # fine-tune the sensor for goal
 
@@ -1649,8 +1648,9 @@ def line_length(coords):
 def init_sensor_target(tracking_type:int, framesize=FRAME_SIZE, windowsize=None) -> None:
     # Initialize sensors by updating the registers
     # for the two different purposes
-    # @param {int} tracking_type: 0 for balloons and 1 for goals
-    # global sensor setup
+    #     @param       {int} tracking_type: 0 for balloons and 1 for goals
+    #
+    # common setup
     sensor.reset()
     sensor.set_auto_whitebal(True)
     sensor.set_auto_exposure(True)
@@ -1659,11 +1659,16 @@ def init_sensor_target(tracking_type:int, framesize=FRAME_SIZE, windowsize=None)
         sensor.ioctl(sensor.IOCTL_SET_FOV_WIDE, True) # wide FOV
     sensor.set_framesize(framesize)
 
+    sensor.set_auto_whitebal(False)
+    sensor.set_auto_exposure(False)
     if tracking_type == 1:
         # goal detection sensor setup
+        sensor.set_auto_exposure(True)
         if board == NICLA:
             sensor.__write_reg(0xfe, 0b00000000) # change to registers at page 0
             sensor.__write_reg(0x80, 0b01111110) # [7] reserved, [6] gamma enable, [5] CC enable,
+            # sensor.__write_reg(0x03, 0b00000011) # high bits of exposure control
+            # sensor.__write_reg(0x04, 0b11000000) # low bits of exposure control
             if ADVANCED_SENSOR_SETUP:
                 sensor.__write_reg(0x80, 0b01101110)    # [7] reserved, [6] gamma enable, [5] CC enable,
                                                         # [4] Edge enhancement enable
@@ -1685,22 +1690,16 @@ def init_sensor_target(tracking_type:int, framesize=FRAME_SIZE, windowsize=None)
                 sensor.__write_reg(0x9a, 0b11110111)    # [7:4] add dynamic range, [2:0] abs adjust every frame
                 sensor.__write_reg(0x9d, 0xff)          # [7:0] Y stretch limit
 
-                # color setup - saturation
-                sensor.__write_reg(0xfe, 2)             # change to registers at page 2
-                sensor.__write_reg(0xd0, SATURATION)    # change global saturation - default 64
-                sensor.__write_reg(0xd1, 48)            # Cb saturation - default 48
-                sensor.__write_reg(0xd2, 48)            # Cr saturation - default 48
-                sensor.__write_reg(0xd3, CONTRAST)      # contrast - default 48
-                sensor.__write_reg(0xd5, 0)             # luma offset - default 0 (sign + 7 format)
-        elif board == OPENMV:
-            pass
-
+            # color setup - saturation
+            sensor.__write_reg(0xfe, 2)             # change to registers at page 2
+            sensor.__write_reg(0xd0, SATURATION)    # change global saturation - default 64
+            sensor.__write_reg(0xd1, 48)            # Cb saturation - default 48
+            sensor.__write_reg(0xd2, 48)            # Cr saturation - default 48
+            sensor.__write_reg(0xd3, CONTRAST)      # contrast - default 48
+            sensor.__write_reg(0xd5, 0)             # luma offset - default 0 (sign + 7 format)
         sensor.skip_frames(time = 1000)
 
     elif tracking_type == 0:
-        sensor.set_auto_whitebal(False)
-        sensor.set_auto_exposure(False)
-
         # sensor setup
         if board == NICLA:
             sensor.__write_reg(0xfe, 0) # change to registers at page 0
@@ -1782,33 +1781,17 @@ def init_sensor_target(tracking_type:int, framesize=FRAME_SIZE, windowsize=None)
             sensor.__write_reg(0xd3, 40)    # contrast
             sensor.__write_reg(0xd5, 0)     # luma offset
         elif board == OPENMV:
-
             print(sensor.get_rgb_gain_db())
             # sensor.set_saturation(3) # saturation setup is broken for openmv rt1062
             sensor.set_auto_whitebal(False, rgb_gain_db=(R_GAIN, G_GAIN, B_GAIN))
             sensor.set_auto_exposure(True)
-
-            sensor.set_contrast(-3)
-            sensor.set_brightness(3)
-
-            # ISP setup:
-            sensor.__write_reg(0x5000, 0b00100111) # [7]: lens correction, [5]: raw gamma
-                                                   # [2:1]: black/white pixel cancellation
-                                                   # [0]: color interpolation
-            sensor.__write_reg(0x5001, sensor.__read_reg(0x5001) | 0b00000110) # [7]: SFX, [5]: scaling
-            sensor.__write_reg(0x5001, sensor.__read_reg(0x5001) & 0b01111111) # [2]: UV average,
-                                                                               # [1]: color matrix
-                                                                               # [0]: AWB
-            # Lens correction setup
-            # sensor.__write_reg(0x583E, 128) # maxmum gain, default 64
-            # sensor.__write_reg(0x583F, 8) # minimum gain, default 32
-            # sensor.__write_reg(0x5840, 24) # Minimum Q, default 24
-            # sensor.__write_reg(0x5841, 0b00000000) # [3:2] add BLC, BLC, [1:0]: manual, auto Q
+            sensor.set_contrast(-2)
+            sensor.set_brightness(2)
 
             # enable saturation setup
-            # sensor.__write_reg(0x5580, sensor.__read_reg(0x5580) | 0x02)
-            # sensor.__write_reg(0x5583, SATURATION)
-            # sensor.__write_reg(0x5584, SATURATION)
+            sensor.__write_reg(0x5580, sensor.__read_reg(0x5580) | 0x02)
+            sensor.__write_reg(0x5583, SATURATION)
+            sensor.__write_reg(0x5584, SATURATION)
 
     else:
         raise ValueError("Not a valid sensor-detection mode!")
@@ -1965,7 +1948,7 @@ if __name__ == "__main__":
             print("0 flag!")
             assert(flag == 0)
 
-        print("fps: ", clock.fps())
+        # print("fps: ", clock.fps())
 
         uart.write(msg)
         if uart.any():
