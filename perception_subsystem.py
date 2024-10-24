@@ -48,7 +48,7 @@ if board == OPENMV:
 # manual white balance for balloon detection
 # for NiclaVision, to be used with *get_gains.py* in the repository
 # for OpenMV see RGB gain readings in the console
-R_GAIN, G_GAIN, B_GAIN = [61.34142, 60.206, 65.30579] #[64, 65, 83]
+R_GAIN, G_GAIN, B_GAIN = [61.57639, 60.206, 65.31993] #[64, 65, 83]
 
 # Grid setup
 N_ROWS = 10
@@ -96,14 +96,14 @@ COLOR_SENSITIVITY = {
 }
 
 # range of the Lumen channel values that guarantee valid detection
-L_RANGE = [10, 80] # we do not want anything too dark or too bright TODO: make it different for each color
+L_RANGE = [8, 80] # we do not want anything too dark or too bright TODO: make it different for each color
 
 # the minimum value given by a cell that we consider a positive detection
 COLOR_CONFIDENCE = 0.3
 
 # target balloon colors {color id: (RGB value for visulization)}
-COLOR_TARGET = {"green": (0,255,0)} # {"purple": (255,0,255),
-                  # "green": (0,255,0)}
+COLOR_TARGET = {"green": (0,255,0),
+                "purple": (255,0,255)}
 
 # peer blimp color
 COLOR_PEER = {} # {"red": (255, 0, 0)}
@@ -910,10 +910,10 @@ class MemROI:
             self.roi = self._map(self.roi, self.frame_params, 0) # Map the ROI to the frame by the forgetting factors
         else:
             # Scale up the new_roi
-            expanded_roi = [new_roi[0] - 0.15 * new_roi[2],
-                            new_roi[1] - 0.15 * new_roi[3],
-                            1.3 * new_roi[2],
-                            1.3 * new_roi[3]]
+            expanded_roi = [new_roi[0] - 0.2 * new_roi[2],
+                            new_roi[1] - 0.2 * new_roi[3],
+                            1.2 * new_roi[2],
+                            1.2 * new_roi[3]]
 
             self.roi = self._map(self.roi, expanded_roi, 1) # Map the ROI to the new_roi by the gain factors
         self._clamp() # Clamp the ROI to be within the frame
@@ -1055,7 +1055,7 @@ class ShapeDetector:
 
 
     def extract_valid_roi(self, img, blob, thresholds, min_edge_distance=0):
-        """ Extracts and validates the ROI from the given blob based on minimum distance to the edge """
+        # Extracts and validates the ROI from the given blob based on minimum distance to the edge
         left_distance = blob.x()
         right_distance = img.width() - (blob.x() + blob.w())
         top_distance = blob.y()
@@ -1128,9 +1128,7 @@ class CurBLOB:
 
     def reinit(self, blob: image.blob) -> None:
         # @description: Reinitialize the current blob with a new blob
-        # @param       {*} self:
         # @param       {image.blob} blob: The new blob to be reinitialized with
-        # @return      {*} None
         self.blob_history = [blob]  # reset the blob history
         self.feature_vector = [
             blob.x(),
@@ -1143,7 +1141,6 @@ class CurBLOB:
 
     def compare(self, new_blob: image.blob) -> int:
         # @description: Compare the feature distance between the current blob and a new blob
-        # @param {*} self:
         # @param {image.blob} new_blob: The new blob to be compared with
         # @return {int} The feature distance between the current blob and the new blob
         new_feature = (
@@ -1339,7 +1336,6 @@ class GoalTracker:
 
     def track(self, edge_removal: bool = True) -> tuple:
         # @description: Track the blob with dynamic threshold and ROI
-        # @param       {*} self:
         # @param       {bool} edge_removal: Whether to remove the edge noises (default: True)
         # @return      {tuple} The feature vector of the tracked blob and whether the blob is tracked
         # the 8-bit flag variable
@@ -1441,8 +1437,7 @@ class GoalTracker:
         # @param {*} self:
         # @param {int} time_show_us: The time to show the blob on the screen
         # @return {tuple} The reference blob and its color statistics
-        omv.disable_fb(False)
-
+        # omv.disable_fb(False)
         img, nice_blobs = self.detect(isColored=True, edge_removal=False)
         img.flush()
         if not nice_blobs:
@@ -1450,9 +1445,9 @@ class GoalTracker:
 
         best_blob = self._find_max(nice_blobs)  # Find the best blob, will never return None if nice_blobs is not empty
         self.draw_initial_blob(img, best_blob, time_show_us)  # Draw the initial blob
-        omv.disable_fb(True)
+        # omv.disable_fb(True)
 
-        # We wnat to have a focus on the center of the blob
+        # We want to have a focus on the center of the blob
         shurnk_roi = list(best_blob.rect())
         shurnk_roi[0] += round(0.25*shurnk_roi[2])
         shurnk_roi[1] += round(0.25*shurnk_roi[3])
@@ -1463,13 +1458,9 @@ class GoalTracker:
         return best_blob, statistics
 
     def detect(self, isColored=False, edge_removal=True):
-        omv.disable_fb(True)  # No show on screen
-        # Get an extra frame buffer and take a snapshot
-        self.clock.tick()
-
-
         ############ NOTE: the following part is the discarded IR blinking method ############
         if False:
+            omv.disable_fb(True)  # No show on screen
             self.LED_STATE = True
             self.IR_LED.value(not self.LED_STATE)
             sensor.skip_frames(1)
@@ -1484,22 +1475,20 @@ class GoalTracker:
 
             while(not sensor.get_frame_available()):
                 pass
-    #        time.sleep_us(20)
-    #            time.sleep_us(1)
-    #        time.sleep_us(int(self.sensor_sleep_time/2))
-
+            # time.sleep_us(20)
+            #     time.sleep_us(1)
+            # time.sleep_us(int(self.sensor_sleep_time/2))
 
             self.IR_LED.value(not self.LED_STATE)
             self.extra_fb2.replace(sensor.snapshot())
             self.time_last_snapshot = time.time_ns()  # wait for the sensor to capture a new image
             ######################################################################
-    #        self.sensor_sleep(self.time_last_snapshot)
-
-    #        sensor.skip_frames(1)
+            # self.sensor_sleep(self.time_last_snapshot)
+            # sensor.skip_frames(1)
             while(not sensor.get_frame_available()):
                 pass
-    #        time.sleep_us(20)
-    #            time.sleep_us(1)
+            # time.sleep_us(20)
+            #     time.sleep_us(1)
 
             img = sensor.snapshot()
             self.time_last_snapshot = time.time_ns()  # wait for the sensor to capture a new image
@@ -1516,9 +1505,11 @@ class GoalTracker:
             # Remove the edge noises
 
             img.negate()
+            omv.disable_fb(False)
         else:
             self.LED_STATE = True
             img = sensor.snapshot()
+            self.clock.tick()
 
 
         if self.num_blob_hist > 5 and self.thresholds == TARGET_ORANGE:
@@ -1541,95 +1532,82 @@ class GoalTracker:
                 x_stride=1,
                 y_stride=1,
                 merge=True,
-
             )
-#        largest_blob = max(list_of_blob, key=lambda b: b.area(), default=None)
-
-        # shape detection/determination
-#        if largest_blob:
-#            roi_img, roi = self.shape_detector.extract_valid_roi(img, largest_blob, self.thresholds)
-#            if roi_img:
-#                detected_shape = self.shape_detector.detect_shape(roi_img)
-#                print("Detected Shape:", detected_shape)
-
-
-#                mean_pooled_img = self.shape_detector.downsample_and_average(roi_img)
-#                gridsize = 9
-#                # Visually represent the data (example code)
-#                scale_x = roi[2] / gridsize
-#                scale_y = roi[3] / gridsize
-#                for i in range(gridsize):
-#                    for j in range(gridsize):
-#                        gray_value = mean_pooled_img.get_pixel(j, i) *255
-#                        rect_x = roi[0] + j * int(scale_x)
-#                        rect_y = roi[1] + i * int(scale_y)
-#                        rect_width = max(int(scale_x), 1)
-#                        rect_height = max(int(scale_y), 1)
-#                        img.draw_rectangle(rect_x, rect_y, rect_width, rect_height, color=(gray_value, gray_value, gray_value), fill=True)
-#                img.draw_rectangle(largest_blob.rect(), color=(127, 0, 127))  # Highlight the blob
-#                img.draw_string(largest_blob.x(), largest_blob.y(), detected_shape, color=(255, 0, 255))
+        # largest_blob = max(list_of_blob, key=lambda b: b.area(), default=None)
+        # # shape detection/determination
+        # if largest_blob:
+        #     roi_img, roi = self.shape_detector.extract_valid_roi(img, largest_blob, self.thresholds)
+        #     if roi_img:
+        #         detected_shape = self.shape_detector.detect_shape(roi_img)
+        #         print("Detected Shape:", detected_shape)
+        #         mean_pooled_img = self.shape_detector.downsample_and_average(roi_img)
+        #         gridsize = 9
+        #         # Visually represent the data (example code)
+        #         scale_x = roi[2] / gridsize
+        #         scale_y = roi[3] / gridsize
+        #         for i in range(gridsize):
+        #             for j in range(gridsize):
+        #                 gray_value = mean_pooled_img.get_pixel(j, i) *255
+        #                 rect_x = roi[0] + j * int(scale_x)
+        #                 rect_y = roi[1] + i * int(scale_y)
+        #                 rect_width = max(int(scale_x), 1)
+        #                 rect_height = max(int(scale_y), 1)
+        #                 img.draw_rectangle(rect_x, rect_y, rect_width, rect_height, color=(gray_value, gray_value, gray_value), fill=True)
+        #         img.draw_rectangle(largest_blob.rect(), color=(127, 0, 127))  # Highlight the blob
+        #         img.draw_string(largest_blob.x(), largest_blob.y(), detected_shape, color=(255, 0, 255))
         st = "FPS: {}".format(str(round(self.clock.fps(), 2)))
         img.draw_string(0, 0, st, color=(255, 0, 0))
         # sensor.dealloc_extra_fb()
-        omv.disable_fb(False)
         big_blobs=[]
         for blob in list_of_blob:
             if blob.area() > 20 and line_length(blob.minor_axis_line())> 5:
-#                if self.tracked_blob != None and self.num_blob_hist > 5:
-#                    big_blobs.append(blob)
-#                else:
-                    roi_img, roi = self.shape_detector.extract_valid_roi(img, blob, self.thresholds)
-                    if roi_img:
+                # if self.tracked_blob != None and self.num_blob_hist > 5:
+                #     big_blobs.append(blob)
+                # else:
+                roi_img, roi = self.shape_detector.extract_valid_roi(img, blob, self.thresholds)
+                if roi_img:
+                    # mean_pooled_img = self.shape_detector.downsample_and_average(roi_img)
+                    # gridsize = 9
+                    # scale_x = roi[2] / gridsize
+                    # scale_y = roi[3] / gridsize
+                    # for i in range(gridsize):
+                    #     for j in range(gridsize):
+                    #         gray_value = mean_pooled_img.get_pixel(j, i) *255
+                    #         rect_x = roi[0] + j * int(scale_x)
+                    #         rect_y = roi[1] + i * int(scale_y)
+                    #         rect_width = max(int(scale_x), 1)
+                    #         rect_height = max(int(scale_y), 1)
+                    # img.draw_rectangle(rect_x, rect_y, rect_width, rect_height, color=(gray_value, gray_value, gray_value), fill=True)
+                    detected_shape = self.shape_detector.detect_shape(roi_img)
+                    if detected_shape != "triangle" and detected_shape != "not":
+                        big_blobs.append(blob)
 
-#                        mean_pooled_img = self.shape_detector.downsample_and_average(roi_img)
-#                        gridsize = 9
-#            #             Visually represent the data (example code)
-#                        scale_x = roi[2] / gridsize
-#                        scale_y = roi[3] / gridsize
-#                        for i in range(gridsize):
-#                            for j in range(gridsize):
-#                                gray_value = mean_pooled_img.get_pixel(j, i) *255
-#                                rect_x = roi[0] + j * int(scale_x)
-#                                rect_y = roi[1] + i * int(scale_y)
-#                                rect_width = max(int(scale_x), 1)
-#                                rect_height = max(int(scale_y), 1)
-#                                img.draw_rectangle(rect_x, rect_y, rect_width, rect_height, color=(gray_value, gray_value, gray_value), fill=True)
-
-                        detected_shape = self.shape_detector.detect_shape(roi_img)
-                        if detected_shape != "triangle" and detected_shape != "not":
-                            big_blobs.append(blob)
-
-                        img.draw_string(blob.x(), blob.y(), detected_shape[0], color=(255, 0, 255))
-                        img.draw_rectangle(blob.rect(), color=(255, 0, 255))
-                        del(roi_img)
-#                else: # if shape cannot be determined add blob to anyway
-#                    big_blobs.append(blob)
-#                    img.draw_rectangle(blob.rect(), color=(255, 0, 0))  # Red rectangle around the blob for visibility
-#            img.draw_edges(blob.min_corners(), color=(255, 0, 0))
-#            img.draw_line(blob.major_axis_line(), color=(0, 255, 0))
-#            img.draw_line(blob.minor_axis_line(), color=(0, 0, 255))
-#            img.draw_rectangle(blob.rect())
-#            img.draw_cross(blob.cx(), blob.cy())
-#            img.draw_keypoints([(blob.cx(), blob.cy(), int(math.degrees(blob.rotation())))], size=20)
-
-
+                    img.draw_string(blob.x(), blob.y(), detected_shape[0], color=(255, 0, 255))
+                    img.draw_rectangle(blob.rect(), color=(255, 0, 255))
+                    del(roi_img)
+        # else: # if shape cannot be determined add blob to anyway
+        #     big_blobs.append(blob)
+        #     img.draw_rectangle(blob.rect(), color=(255, 0, 0))  # Red rectangle around the blob for visibility
+        # img.draw_edges(blob.min_corners(), color=(255, 0, 0))
+        # img.draw_line(blob.major_axis_line(), color=(0, 255, 0))
+        # img.draw_line(blob.minor_axis_line(), color=(0, 0, 255))
+        # img.draw_rectangle(blob.rect())
+        # img.draw_cross(blob.cx(), blob.cy())
+        # img.draw_keypoints([(blob.cx(), blob.cy(), int(math.degrees(blob.rotation())))], size=20)
         return img, big_blobs
 
+
     def sensor_sleep(self, last_time_stamp) -> None:
-        """
-        @description: Wait for the sensor for some time from the last snapshot to avoid a partial new image
-        @param       {*} last_time_stamp: The time stamp of the last snapshot
-        @return      {*} None
-        """
+        # @description: Wait for the sensor for some time from the last snapshot to avoid a partial new image
+        # @param       {*} last_time_stamp: The time stamp of the last snapshot
         elapsed = self.sensor_sleep_time - (int((time.time_ns() - last_time_stamp) / 1000))
         while elapsed < 0:
             elapsed += self.sensor_sleep_time
-#        if elapsed >= 0:
+        # if elapsed >= 0:
         time.sleep_us(elapsed)
-#        else:
-#            time.sleep_us(self.sensor_sleep_time+ elapsed%self.sensor_sleep_time)
+        # else:
+        #     time.sleep_us(self.sensor_sleep_time+ elapsed%self.sensor_sleep_time)
         return None
-
 
 
 # helper function for calculating the length of a line segment
@@ -1786,7 +1764,7 @@ def init_sensor_target(tracking_type:int, framesize=FRAME_SIZE, windowsize=None)
             sensor.set_auto_whitebal(False, rgb_gain_db=(R_GAIN, G_GAIN, B_GAIN))
             sensor.set_auto_exposure(True)
             sensor.set_contrast(-2)
-            sensor.set_brightness(2)
+            sensor.set_brightness(1)
 
             # enable saturation setup
             sensor.__write_reg(0x5580, sensor.__read_reg(0x5580) | 0x02)
@@ -1863,7 +1841,7 @@ def mode_initialization(input_mode, mode, grid=None, detectors=None):
 if __name__ == "__main__":
     # Necessary for both modes
     clock = time.clock()
-    mode = 1 # 0 for balloon detection and 1 for goal
+    mode = 0 # 0 for balloon detection and 1 for goal
 
     # Initialize inter-board communication
     # time of flight sensor initialization
@@ -1914,10 +1892,10 @@ if __name__ == "__main__":
 
     # Main loop
     while True:
-        clock.tick()
         if mode == 1:
             feature_vector, flag = tracker.track()
         else:
+            clock.tick()
             img = sensor.snapshot()
             feature_vector, flag = tracker.track(img)
         # try: dis = 9999
