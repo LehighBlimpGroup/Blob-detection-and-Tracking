@@ -170,7 +170,7 @@ TARGET_YELLOW = [(63, 90, -32, -12, 28, 54)]#[(38, 92, -25, -5, 22, 50)]
 TARGET_COLOR = TARGET_YELLOW
 WAIT_TIME_US = 1000000//frame_rate
 
-SATURATION = 64 # global saturation for goal detection mode - not affected by ADVANCED_SENSOR_SETUP, defeult 64
+SATURATION = 96 # global saturation for goal detection mode - not affected by ADVANCED_SENSOR_SETUP, defeult 64
 CONTRAST = 40 # global contrast for goal detection mode - not affected by ADVANCED_SENSOR_SETUP, defeult 48
 ADVANCED_SENSOR_SETUP = False # fine-tune the sensor for goal
 
@@ -195,8 +195,9 @@ class LogOddFilter:
         measurement_array[measurement_array < 0.1] = self.l_ndet
         p_x_array = np.clip(0.48 + 0.52 * measurement_array, 0.0001, 0.9999)
         l_array = np.log(p_x_array / (1. - p_x_array))
-        if FILTER_KERNEL:
-            pass # TODO: to implement
+        if FILTER_KERNEL: # TODO: to implement
+            self.L += l_array - self.init_belif
+            self.L = np.clip(self.L, l_min, l_max)
         else:
             self.L += l_array - self.init_belif
             self.L = np.clip(self.L, l_min, l_max)
@@ -280,6 +281,11 @@ class Grid:
         self.num_cols = num_cols
         self.cell_width = int(img_width / num_cols)
         self.cell_height = int(img_height / num_rows)
+        self.grid_img_bf = sensor.alloc_extra_fb(num_cols, num_rows, sensor.GRAYSCALE).bytearray()
+
+
+    def __del__(self):
+        sensor.dealloc_extra_fb()
 
 
     # an optimized counting method that ``batch-counts'' all cells using ulab numpy
@@ -374,12 +380,13 @@ class Grid:
 
     # an ulab-assisted optimized kernel count method
     def kernel_count(self, metric):
+        pixel_scale = 256
+        metric_image = None
         if FILTER_KERNEL:
-            ndarray_morphed_metric = np.array(metric, dtype=np.float)
+            ndarray_morphed_metric = np.array(metric, dtype=np.float)*pixel_scale/kernel_scale
         else:
-            pixel_sacle = 256
-            ndarray_metric = np.array(metric*pixel_sacle, dtype=np.float).reshape((N_ROWS, N_COLS))
-            metric_image = image.Image(ndarray_metric)
+            ndarray_metric = np.array(metric*pixel_scale, dtype=np.float).reshape((N_ROWS, N_COLS))
+            metric_image = image.Image(ndarray_metric, buffer=self.grid_img_bf)
             metric_image.morph(KERNEL_SIZE//2, kernel_matrix)
             ndarray_morphed_metric = metric_image.to_ndarray(dtype=np.uint8).flatten()
 
@@ -387,13 +394,59 @@ class Grid:
         indices = np.where(abs(ndarray_morphed_metric - max_val) < 0.5, np.arange(len(ndarray_morphed_metric)), -1)
         matching_indices = indices[indices != -1]
         same_val_rc = [self._index_to_matrix(i) for i in matching_indices]
-        return None, None, max_val*kernel_scale//pixel_sacle, same_val_rc
+        return None, None, max_val*kernel_scale//pixel_scale, same_val_rc
+
+
+    @micropython.native
+    def optimized_loop(self, metric):
+        num_rows = self.num_rows
+        num_cols = self.num_cols
+        metric_len = len(metric)
+        half_kernel = KERNEL_SIZE // 2
+        max_col = -1
+        max_row = -1
+        max_val = -1
+        same_val_rc = []
+
+        # Precompute kernel offsets
+        kernel_offsets = [
+            (dr, dc)
+            for dr in range(-half_kernel, half_kernel + 1)
+            for dc in range(-half_kernel, half_kernel + 1)
+        ]
+
+        for i in range(metric_len):
+            row = i // num_cols
+            col = i % num_cols
+            total = 0
+
+            for dr, dc in kernel_offsets:
+                r = row + dr
+                c = col + dc
+                if 0 <= r < num_rows and 0 <= c < num_cols:
+                    mk = r * num_cols + c
+                    val = metric[mk]
+                    if dr == 0 and dc == 0:
+                        total += KERNEL_CENTER_EMPH * val
+                    else:
+                        total += val
+
+            if total > max_val:
+                max_row = row
+                max_col = col
+                max_val = total
+                same_val_rc = [[max_row, max_col]]
+            elif total == max_val:
+                same_val_rc.append([row, col])
+
+        return max_row, max_col, max_val, same_val_rc
+
 
 
     def action(self, metric):
         if PROFILING:
             start_time = time.ticks_us()
-        _, _, max_val, same_val_rc = self.kernel_count(metric)
+        _, _, max_val, same_val_rc = self.optimized_loop(metric)
         if PROFILING:
             print("Pooling: {} us".format(time.ticks_diff(time.ticks_us(), start_time)))
         sum_row, sum_col = 0, 0
@@ -1522,33 +1575,28 @@ def init_sensor_target(tracking_type:int, framesize=FRAME_SIZE, windowsize=None)
             sensor.set_brightness(1)
 
             # ISP setup:
-            sensor.__write_reg(0x5000, 0b00100111) # [7]: lens correction, [5]: raw gamma
+            # sensor.__write_reg(0x5000, 0b00100111) # [7]: lens correction, [5]: raw gamma
                                                    # [2:1]: black/white pixel cancellation
                                                    # [0]: color interpolation
-            sensor.__write_reg(0x5001, sensor.__read_reg(0x5001) | 0b00000110) # [7]: SFX, [5]: scaling
-            sensor.__write_reg(0x5001, sensor.__read_reg(0x5001) & 0b01111111) # [2]: UV average,
+            # sensor.__write_reg(0x5001, sensor.__read_reg(0x5001) | 0b00000110) # [7]: SFX, [5]: scaling
+            # sensor.__write_reg(0x5001, sensor.__read_reg(0x5001) & 0b01111111) # [2]: UV average,
                                                                                # [1]: color matrix
                                                                                # [0]: AWB
-            # Lens correction setup
-            # sensor.__write_reg(0x583E, 128) # maxmum gain, default 64
-            # sensor.__write_reg(0x583F, 8) # minimum gain, default 32
-            # sensor.__write_reg(0x5840, 24) # Minimum Q, default 24
-            # sensor.__write_reg(0x5841, 0b00000000) # [3:2] add BLC, BLC, [1:0]: manual, auto Q
 
             # enable saturation setup
             sensor.__write_reg(0x5580, sensor.__read_reg(0x5580) | 0x02)
             sensor.__write_reg(0x5583, SATURATION)
             sensor.__write_reg(0x5584, SATURATION)
 
-            # sensor.__write_reg(0x5000, 0x27 | 0x80)
-            # sensor.__write_reg(0x5842, 0)
-            # sensor.__write_reg(0x5843, 0x00)
-            # sensor.__write_reg(0x5844, 0)
-            # sensor.__write_reg(0x5845, 0x00)
-            # sensor.__write_reg(0x5846, 0x1)
-            # sensor.__write_reg(0x5847, 0x00)
-            # sensor.__write_reg(0x5848, 0x1)
-            # sensor.__write_reg(0x5849, 0x0)
+            # sensor.__write_reg(0x5000, 0b10100111)
+            # sensor.__write_reg(0x5842, 0b00000000) # BR h[10:8]
+            # sensor.__write_reg(0x5843, 0b00000000) # BR h[7:0]
+            # sensor.__write_reg(0x5844, 0b00000000) # BR v[10:8]
+            # sensor.__write_reg(0x5845, 0b00000000) # BR v[7:0]
+            # sensor.__write_reg(0x5846, 0b00000010) # G  h[10:8]
+            # sensor.__write_reg(0x5847, 0b10000000) # G  h[7:0]
+            # sensor.__write_reg(0x5848, 0b00000001) # G  v[10:8]
+            # sensor.__write_reg(0x5849, 0b00100000) # G  v[7:0]
     else:
         raise ValueError("Not a valid sensor-detection mode!")
 
@@ -1665,7 +1713,6 @@ if __name__ == "__main__":
             neighbor=neighbor
         )
 
-
     # Initializing the tracker
     mode, tracker = mode_initialization(mode, -1, grid, detectors)
     del img
@@ -1730,7 +1777,7 @@ if __name__ == "__main__":
             uart_input = uart.read()
             print(uart_input)
             if uart_input[-1] == 0x40 and mode == 1:
-                tracker.__del__()
+                tracker.destruct()
                 res = mode_initialization(0, mode, grid, detectors)
                 if res:
                     mode, tracker = res
