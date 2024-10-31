@@ -47,7 +47,7 @@ elif FRAME_SIZE == sensor.HQVGA:
 # manual white balance - to be used with *get_gains.py* in the repository
 # - see RGB gain readings in the console
 if board == OPENMV:
-    R_GAIN, G_GAIN, B_GAIN = [61.64134, 60.206, 65.46928]
+    R_GAIN, G_GAIN, B_GAIN = [61.56914, 60.206, 65.34813]
 elif board == NICLA:
     R_GAIN, G_GAIN, B_GAIN = [64, 64, 103]
 
@@ -55,6 +55,11 @@ elif board == NICLA:
 # Grid setup
 N_ROWS = 10
 N_COLS = 15
+
+random.seed(time.time())
+START_ROW = random.randint(0, N_ROWS-4)
+START_COL = random.randint(0, N_COLS-4)
+print(START_ROW, START_COL)
 
 # Probablistic filter for balloon detection
 FILTER = True
@@ -73,8 +78,8 @@ COMBINE_TARGETS = False
 # to be used with
 if board == OPENMV:
     COLOR_DATA = {
-        "purple": [[4.740681682280247, -16.50886984253538] ,  [[0.31100528942292466, 0.13766636055706657], [0.13766636055706657, 0.07535034758872071]]],
-        "green": [[-24.00505871725384, 29.14363143631436] ,  [[0.12835838243084582, 0.03778413810138128], [0.037784138101381294, 0.032447535784218]]],
+        "purple": [[16.732471790915227, -15.668434757450092] ,  [[0.3136650372653398, 0.19485529025928053], [0.19485529025928053, 0.1335599217757186]]],
+        "green": [[-11.66613256872997, 13.481362793051105] ,  [[0.059393970052863745, 0.03651851702833214], [0.03651851702833214, 0.04570732829578673]]],
         "blue": [[18.7854, -10.05301], [[3.8293, -1.8963], [-1.8963, 17.7735]]],
         "red": [[42.01334903808402, 20.50530035335689] ,  [[0.01419921622178408, -0.010337187414071827], [-0.010337187414071825, 0.016876163913575336]]]
     } # openmv
@@ -93,7 +98,7 @@ elif board == NICLA:
 # [2]: for filtering out messy background/environment, lower -> less positive detection
 COLOR_SENSITIVITY = {
     "purple": [2.0, 5.0, 30.0],
-    "green": [2.0, 5.0, 30.0],
+    "green": [3.0, 3.0, 30.0],
     "blue": [2.0, 5.0, 30.0],
     "red": [2.0, 5.0, 30.0]
 }
@@ -298,7 +303,7 @@ class Grid:
         stats_array = np.zeros((num_rows*num_cols, 6), dtype=np.float)
         for row in range(num_rows):
             row_start = row * cell_height
-            print_corner_row = PRINT_CORNER and 2 < row < 6
+            print_corner_row = PRINT_CORNER and START_ROW < row < START_ROW + 4
 
             for col in range(num_cols):
                 col_start = col * cell_width
@@ -315,7 +320,7 @@ class Grid:
 
                 stats_array[self._matrix_to_index(row, col), :] = np.array([l_mean, a_mean, b_mean, l_stdev, a_stdev, b_stdev])
 
-                if print_corner_row and 4 < col < 8:
+                if print_corner_row and START_COL < col < START_COL + 4:
                     print((a_mean, b_mean), end=', ')
 
             if print_corner_row:
@@ -342,7 +347,7 @@ class Grid:
     def plot_data_collection(self):
         for row in range(self.num_rows):
             for col in range(self.num_cols):
-                if 2<row<6 and 4<col<8:
+                if START_ROW<row<START_ROW+4 and START_COL<col<START_COL+4:
                     # Draw the ROI on the image
                     roi = (col * self.cell_width, row * self.cell_height, self.cell_width+1, self.cell_height+1)
                     img.draw_rectangle(roi, color=(0, 0, 0), thickness=1)
@@ -1426,6 +1431,8 @@ def init_sensor_target(tracking_type:int, framesize=FRAME_SIZE, windowsize=None)
     if tracking_type == 1:
         # goal detection sensor setup
         sensor.reset()
+        if board == NICLA:
+            sensor.ioctl(sensor.IOCTL_SET_FOV_WIDE, True)
         sensor.set_auto_exposure(True)
         sensor.set_pixformat(sensor.RGB565)
         sensor.set_framesize(framesize)
@@ -1560,85 +1567,227 @@ def init_sensor_target(tracking_type:int, framesize=FRAME_SIZE, windowsize=None)
             sensor.__write_reg(0xd3, 40)    # contrast
             sensor.__write_reg(0xd5, 0)     # luma offset
         elif board == OPENMV:
-            print(sensor.get_rgb_gain_db())
-            # sensor.set_saturation(3) # saturation setup is broken for openmv rt1062
-            sensor.set_auto_whitebal(False, rgb_gain_db=(R_GAIN, G_GAIN, B_GAIN))
-            sensor.set_auto_exposure(True)
             # sensor.set_contrast(-3)
             # sensor.set_brightness(1)
+            # sensor.__write_reg(0x3008, 0x42) # software power down
+            # sensor.__write_reg(0x3103, 0x03) # SCCB system control
 
             # ISP setup:
-            # sensor.__write_reg(0x5000, 0b10100001)    # [7]: lens correction, [5]: raw gamma
-                                                        # [2:1]: black/white pixel cancellation
-                                                        # [0]: color interpolation
-            # sensor.__write_reg(0x5001, sensor.__read_reg(0x5001) | 0b00000110) # [7]: SFX, [5]: scaling
-            # sensor.__write_reg(0x5001, sensor.__read_reg(0x5001) & 0b01111111) # [2]: UV average,
-                                                                               # [1]: color matrix
-                                                                               # [0]: AWB
-            # BR_h_rec = 1023
-            # BR_v_rec = 0
-            # G_h_rec = 0
-            # G_v_rec = 0
-            # sensor.__write_reg(0x583e, 64)  # Maximum gain: default 64
-            # sensor.__write_reg(0x583f, 32)  # Minimum gain: default 32
-            # sensor.__write_reg(0x5840, 24)  # Minimum Q: default 24
-            # sensor.__write_reg(0x5841, 0b00001101)  # default 1101
-            #                                         # Bit[3]: Add BLC enable
-            #                                         #   0: Disable BLC add back function
-            #                                         #   1: Enable BLC add back function
-            #                                         # Bit[2]: BLC enable
-            #                                         #   0: Disable BLC function
-            #                                         #   1: Enable BLC function
-            #                                         # Bit[1]: Gain manual enable
-            #                                         # Bit[0]: Auto Q enable
-            #                                         #   0: Used constant Q (0x40)
-            #                                         #   1: Used calculated Q
-            # sensor.__write_reg(0x5842, BR_h_rec >> 8)   # BR h[10:8]
-            # sensor.__write_reg(0x5843, BR_h_rec & 0xff) # BR h[7:0]
-            # sensor.__write_reg(0x5844, BR_v_rec >> 8)   # BR v[10:8]
-            # sensor.__write_reg(0x5845, BR_v_rec & 0xff) # BR v[7:0]
-            # sensor.__write_reg(0x5846, G_h_rec >> 8)    # G  h[10:8]
-            # sensor.__write_reg(0x5847, G_h_rec & 0xff)  # G  h[7:0]
-            # sensor.__write_reg(0x5848, G_v_rec >> 8)    # G  v[10:8]
-            # sensor.__write_reg(0x5849, G_v_rec & 0xff)  # G  v[7:0]
+            sensor.__write_reg(0x5000, 0b10100111)  # [7]: lens correction, [5]: raw gamma
+                                                    # [2:1]: black/white pixel cancellation
+                                                    # [0]: color interpolation
+            sensor.__write_reg(0x5001, sensor.__read_reg(0x5001) | 0b10000110)# [7]: SFX, [5]: scaling
+            # sensor.__write_reg(0x5001, sensor.__read_reg(0x5001) & 0b11011111)  # [2]: UV average,
+                                                                                # [1]: color matrix
+                                                                                # [0]: AWB
+            openmv_set_saturation_brightness_contrast(saturation=1, brightness=2, contrast=-3, ev=1)
 
-            # color settings - contrast, brightness, and saturation
-            # Do refer to page 49 of this document
-            # https://www.arducam.com/downloads/modules/OV5640/OV5640_Software_app_note_parallel.pdf
-            # contrast set to -3
-            sensor.__write_reg(0x3212, 0x03)
-            sensor.__write_reg(0x5586, 0x14)
-            sensor.__write_reg(0x5585, 0x14)
-            sensor.__write_reg(0x3212, 0x13)
-            sensor.__write_reg(0x3212, 0xa3)
+            # lens correction parameters
+            BR_h_rec = 0
+            BR_v_rec = 0
+            G_h_rec = 256
+            G_v_rec = 256
+            sensor.__write_reg(0x583e, 255)  # Maximum gain: default 64
+            sensor.__write_reg(0x583f, 0)  # Minimum gain: default 32
+            sensor.__write_reg(0x5840, 0)  # Minimum Q: default 24
+            sensor.__write_reg(0x5841, 0b00000001)  # default 1101
+                                                    # Bit[3]: Add BLC enable
+                                                    #   0: Disable BLC add back function
+                                                    #   1: Enable BLC add back function
+                                                    # Bit[2]: BLC enable
+                                                    #   0: Disable BLC function
+                                                    #   1: Enable BLC function
+                                                    # Bit[1]: Gain manual enable
+                                                    # Bit[0]: Auto Q enable
+                                                    #   0: Used constant Q (0x40)
+                                                    #   1: Used calculated Q
+            sensor.__write_reg(0x5842, BR_h_rec >> 8)   # BR h[10:8]
+            sensor.__write_reg(0x5843, BR_h_rec & 0xff) # BR h[7:0]
+            sensor.__write_reg(0x5844, BR_v_rec >> 8)   # BR v[10:8]
+            sensor.__write_reg(0x5845, BR_v_rec & 0xff) # BR v[7:0]
+            sensor.__write_reg(0x5846, G_h_rec >> 8)    # G  h[10:8]
+            sensor.__write_reg(0x5847, G_h_rec & 0xff)  # G  h[7:0]
+            sensor.__write_reg(0x5848, G_v_rec >> 8)    # G  v[10:8]
+            sensor.__write_reg(0x5849, G_v_rec & 0xff)  # G  v[7:0]
+            # sensor.__write_reg(0x3008, 0x02) # software power up
 
-            # brightness set to +4
-            sensor.__write_reg(0x3212, 0x03)
-            sensor.__write_reg(0x5587, 0x40)
-            sensor.__write_reg(0x5588, 0x09)
-            sensor.__write_reg(0x3212, 0x13)
-            sensor.__write_reg(0x3212, 0xa3)
+            sensor.set_auto_exposure(True)
+            print(sensor.get_rgb_gain_db())
+            sensor.set_auto_whitebal(False, rgb_gain_db=(R_GAIN, G_GAIN, B_GAIN))
 
-            # saturation set to +3
-            sensor.__write_reg(0x3212, 0x03)
-            sensor.__write_reg(0x5381, 0x1c)
-            sensor.__write_reg(0x5382, 0x5a)
-            sensor.__write_reg(0x5383, 0x06)
-            sensor.__write_reg(0x5384, 0x2b)
-            sensor.__write_reg(0x5385, 0xab)
-            sensor.__write_reg(0x5386, 0xd6)
-            sensor.__write_reg(0x5387, 0xda)
-            sensor.__write_reg(0x5388, 0xd6)
-            sensor.__write_reg(0x5389, 0x04)
-            sensor.__write_reg(0x538b, 0x98)
-            sensor.__write_reg(0x538a, 0x01)
-            sensor.__write_reg(0x3212, 0x13)
-            sensor.__write_reg(0x3212, 0xa3)
     else:
         raise ValueError("Not a valid sensor-detection mode!")
 
     if windowsize is not None:
         sensor.set_windowing(windowsize)
+
+def openmv_set_saturation_brightness_contrast(saturation: int=0, brightness: int=0, contrast: int=0, ev: int=0):
+    # color settings - contrast, brightness, and saturation
+    # Do refer to page 49 of this document
+    # https://www.arducam.com/downloads/modules/OV5640/OV5640_Software_app_note_parallel.pdf
+
+    # contrast
+    sensor.__write_reg(0x3212, 0x03)
+    if contrast == 3:
+        sensor.__write_reg(0x5586, 0x2c)
+        sensor.__write_reg(0x5585, 0x1c)
+    elif contrast == 2:
+        sensor.__write_reg(0x5586, 0x28)
+        sensor.__write_reg(0x5585, 0x18)
+    elif contrast == 1:
+        sensor.__write_reg(0x5586, 0x24)
+        sensor.__write_reg(0x5585, 0x10)
+    elif contrast == 0:
+        sensor.__write_reg(0x5586, 0x20)
+        sensor.__write_reg(0x5585, 0x00)
+    elif contrast == -1:
+        sensor.__write_reg(0x5586, 0x1c)
+        sensor.__write_reg(0x5585, 0x1c)
+    elif contrast == -2:
+        sensor.__write_reg(0x5586, 0x18)
+        sensor.__write_reg(0x5585, 0x18)
+    elif contrast == -3:
+        sensor.__write_reg(0x5586, 0x14)
+        sensor.__write_reg(0x5585, 0x14)
+
+    # brightness
+    if brightness == 4:
+        sensor.__write_reg(0x5587, 0x40)
+        sensor.__write_reg(0x5588, 0x01)
+    elif brightness == 3:
+        sensor.__write_reg(0x5587, 0x30)
+        sensor.__write_reg(0x5588, 0x01)
+    elif brightness == 2:
+        sensor.__write_reg(0x5587, 0x20)
+        sensor.__write_reg(0x5588, 0x01)
+    elif brightness == 1:
+        sensor.__write_reg(0x5587, 0x10)
+        sensor.__write_reg(0x5588, 0x01)
+    elif brightness == 0:
+        sensor.__write_reg(0x5587, 0x00)
+        sensor.__write_reg(0x5588, 0x01)
+    elif brightness == -1:
+        sensor.__write_reg(0x5587, 0x10)
+        sensor.__write_reg(0x5588, 0x09)
+    elif brightness == -2:
+        sensor.__write_reg(0x5587, 0x20)
+        sensor.__write_reg(0x5588, 0x09)
+    elif brightness == -3:
+        sensor.__write_reg(0x5587, 0x30)
+        sensor.__write_reg(0x5588, 0x09)
+    elif brightness == -4:
+        sensor.__write_reg(0x5587, 0x40)
+        sensor.__write_reg(0x5588, 0x09)
+
+    # saturation
+    sensor.__write_reg(0x5381, 0x1c)
+    sensor.__write_reg(0x5382, 0x5a)
+    sensor.__write_reg(0x5383, 0x06)
+    if saturation == 3:
+        sensor.__write_reg(0x5384, 0x2b)
+        sensor.__write_reg(0x5385, 0xab)
+        sensor.__write_reg(0x5386, 0xd6)
+        sensor.__write_reg(0x5387, 0xda)
+        sensor.__write_reg(0x5388, 0xd6)
+        sensor.__write_reg(0x5389, 0x04)
+    elif saturation == 2:
+        sensor.__write_reg(0x5384, 0x24)
+        sensor.__write_reg(0x5385, 0x8f)
+        sensor.__write_reg(0x5386, 0xb3)
+        sensor.__write_reg(0x5387, 0xb6)
+        sensor.__write_reg(0x5388, 0xb3)
+        sensor.__write_reg(0x5389, 0x03)
+    elif saturation == 1:
+        sensor.__write_reg(0x5384, 0x1f)
+        sensor.__write_reg(0x5385, 0x7a)
+        sensor.__write_reg(0x5386, 0x9a)
+        sensor.__write_reg(0x5387, 0x9c)
+        sensor.__write_reg(0x5388, 0x9a)
+        sensor.__write_reg(0x5389, 0x02)
+    elif saturation == 0:
+        sensor.__write_reg(0x5384, 0x1a)
+        sensor.__write_reg(0x5385, 0x66)
+        sensor.__write_reg(0x5386, 0x80)
+        sensor.__write_reg(0x5387, 0x82)
+        sensor.__write_reg(0x5388, 0x80)
+        sensor.__write_reg(0x5389, 0x02)
+    elif saturation == -1:
+        sensor.__write_reg(0x5384, 0x15)
+        sensor.__write_reg(0x5385, 0x52)
+        sensor.__write_reg(0x5386, 0x66)
+        sensor.__write_reg(0x5387, 0x68)
+        sensor.__write_reg(0x5388, 0x66)
+        sensor.__write_reg(0x5389, 0x02)
+    elif saturation == -2:
+        sensor.__write_reg(0x5384, 0x10)
+        sensor.__write_reg(0x5385, 0x3d)
+        sensor.__write_reg(0x5386, 0x4d)
+        sensor.__write_reg(0x5387, 0x4e)
+        sensor.__write_reg(0x5388, 0x4d)
+        sensor.__write_reg(0x5389, 0x01)
+    elif saturation == -3:
+        sensor.__write_reg(0x5384, 0x0c)
+        sensor.__write_reg(0x5385, 0x30)
+        sensor.__write_reg(0x5386, 0x3d)
+        sensor.__write_reg(0x5387, 0x3e)
+        sensor.__write_reg(0x5388, 0x3d)
+        sensor.__write_reg(0x5389, 0x01)
+
+    if ev == 3:
+        sensor.__write_reg(0x3a0f, 0x60)
+        sensor.__write_reg(0x3a10, 0x58)
+        sensor.__write_reg(0x3a11, 0xa0)
+        sensor.__write_reg(0x3a1b, 0x60)
+        sensor.__write_reg(0x3a1e, 0x58)
+        sensor.__write_reg(0x3a1f, 0x20)
+    elif ev == 2:
+        sensor.__write_reg(0x3a0f, 0x50)
+        sensor.__write_reg(0x3a10, 0x48)
+        sensor.__write_reg(0x3a11, 0x90)
+        sensor.__write_reg(0x3a1b, 0x50)
+        sensor.__write_reg(0x3a1e, 0x48)
+        sensor.__write_reg(0x3a1f, 0x20)
+    elif ev == 1:
+        sensor.__write_reg(0x3a0f, 0x40)
+        sensor.__write_reg(0x3a10, 0x38)
+        sensor.__write_reg(0x3a11, 0x71)
+        sensor.__write_reg(0x3a1b, 0x40)
+        sensor.__write_reg(0x3a1e, 0x38)
+        sensor.__write_reg(0x3a1f, 0x10)
+    elif ev == 0:
+        sensor.__write_reg(0x3a0f, 0x38)
+        sensor.__write_reg(0x3a10, 0x30)
+        sensor.__write_reg(0x3a11, 0x61)
+        sensor.__write_reg(0x3a1b, 0x38)
+        sensor.__write_reg(0x3a1e, 0x30)
+        sensor.__write_reg(0x3a1f, 0x10)
+    elif ev == -1:
+        sensor.__write_reg(0x3a0f, 0x30)
+        sensor.__write_reg(0x3a10, 0x28)
+        sensor.__write_reg(0x3a11, 0x61)
+        sensor.__write_reg(0x3a1b, 0x30)
+        sensor.__write_reg(0x3a1e, 0x28)
+        sensor.__write_reg(0x3a1f, 0x10)
+    elif ev == -2:
+        sensor.__write_reg(0x3a0f, 0x20)
+        sensor.__write_reg(0x3a10, 0x18)
+        sensor.__write_reg(0x3a11, 0x41)
+        sensor.__write_reg(0x3a1b, 0x20)
+        sensor.__write_reg(0x3a1e, 0x18)
+        sensor.__write_reg(0x3a1f, 0x10)
+    elif ev == -3:
+        sensor.__write_reg(0x3a0f, 0x10)
+        sensor.__write_reg(0x3a10, 0x08)
+        sensor.__write_reg(0x3a11, 0x10)
+        sensor.__write_reg(0x3a1b, 0x08)
+        sensor.__write_reg(0x3a1e, 0x20)
+        sensor.__write_reg(0x3a1f, 0x10)
+
+    sensor.__write_reg(0x538b, 0x98)
+    sensor.__write_reg(0x538a, 0x01)
+    sensor.__write_reg(0x3212, 0x13)
+    sensor.__write_reg(0x3212, 0xa3)
+
 
 # IBus communication functions
 # checksum that we can but we are not using on the ESP side for verifying data integrity
