@@ -31,7 +31,7 @@ if board == OPENMV:
 
 # framesize setup, nicla cannot handle anything above HQVGA
 # openmv, on the other hand, is recommended to run with QVGA
-FRAME_SIZE = sensor.HQVGA
+FRAME_SIZE = sensor.QVGA
 if board == NICLA:
     FRAME_SIZE = sensor.HQVGA
 FRAME_PARAMS = None
@@ -47,9 +47,9 @@ elif FRAME_SIZE == sensor.HQVGA:
 # manual white balance - to be used with *get_gains.py* in the repository
 # - see RGB gain readings in the console
 if board == OPENMV:
-    R_GAIN, G_GAIN, B_GAIN = [61.51823, 60.206, 65.35751] #[64, 65, 83]
+    R_GAIN, G_GAIN, B_GAIN = [61.64134, 60.206, 65.46928]
 elif board == NICLA:
-    R_GAIN, G_GAIN, B_GAIN = [64, 64, 104] #[64, 65, 83]
+    R_GAIN, G_GAIN, B_GAIN = [64, 64, 103]
 
 ########## NOTE: MACROS for balloon detection #############
 # Grid setup
@@ -71,19 +71,20 @@ COMBINE_TARGETS = False
 
 # Color distribution - From the data analysis on balloon detection
 # to be used with
-COLOR_DATA = {
-    "purple": [[12.81815578465063, -22.79954180985109] ,  [[0.16660980418172636, 0.07742479476144622], [0.0774247947614462, 0.04503710442815662]]],
-    "green": [[-18.423179565383148, 13.264582539077391] ,  [[0.01947907321188221, 0.02231663705037393], [0.02231663705037393, 0.03995214702238352]]],
-    "blue": [[18.7854, -10.05301], [[3.8293, -1.8963], [-1.8963, 17.7735]]],
-    "red": [[42.01334903808402, 20.50530035335689] ,  [[0.01419921622178408, -0.010337187414071827], [-0.010337187414071825, 0.016876163913575336]]]
-} # openmv
-
-# COLOR_DATA = {
-#     "purple": [[5.296204512847267, -16.034955001956437] ,  [[0.06109919151490151, 0.014578097165926314], [0.014578097165926313, 0.01695861889387148]]],
-#     "green": [[-14.603367697594502, 15.553883161512028] ,  [[0.09030608562216992, 0.04070227257445328], [0.04070227257445328, 0.038201932090824356]]],
-#     "blue": [[18.7854, -10.05301], [[3.8293, -1.8963], [-1.8963, 17.7735]]],
-#     "red": [[54.89488372093023, 39.03813953488372] ,  [[0.03884277545995741, -0.04972294704777547], [-0.04972294704777547, 0.08340376032641221]]]
-# } # nicla
+if board == OPENMV:
+    COLOR_DATA = {
+        "purple": [[4.740681682280247, -16.50886984253538] ,  [[0.31100528942292466, 0.13766636055706657], [0.13766636055706657, 0.07535034758872071]]],
+        "green": [[-24.00505871725384, 29.14363143631436] ,  [[0.12835838243084582, 0.03778413810138128], [0.037784138101381294, 0.032447535784218]]],
+        "blue": [[18.7854, -10.05301], [[3.8293, -1.8963], [-1.8963, 17.7735]]],
+        "red": [[42.01334903808402, 20.50530035335689] ,  [[0.01419921622178408, -0.010337187414071827], [-0.010337187414071825, 0.016876163913575336]]]
+    } # openmv
+elif board == NICLA:
+    COLOR_DATA = {
+        "purple": [[20.181266059331932, -33.875262789067975] ,  [[0.18805142593804078, 0.14040366096167953], [0.14040366096167953, 0.12841161359627176]]],
+        "green": [[-42.17613830879836, 28.89164669633687] ,  [[0.025048399242902798, 0.016983826988058254], [0.016983826988058254, 0.01644179035001752]]],
+        "blue": [[18.7854, -10.05301], [[3.8293, -1.8963], [-1.8963, 17.7735]]],
+        "red": [[54.89488372093023, 39.03813953488372] ,  [[0.03884277545995741, -0.04972294704777547], [-0.04972294704777547, 0.08340376032641221]]]
+    } # nicla
 
 
 # color detection sensitivities:
@@ -91,14 +92,14 @@ COLOR_DATA = {
 # [1]: for filtering out uniform colors such as a light source, higher -> less positive detection
 # [2]: for filtering out messy background/environment, lower -> less positive detection
 COLOR_SENSITIVITY = {
-    "purple": [4.0, 5.0, 28.0],
-    "green": [2.0, 5.0, 26.0],
+    "purple": [2.0, 5.0, 30.0],
+    "green": [2.0, 5.0, 30.0],
     "blue": [2.0, 5.0, 30.0],
     "red": [2.0, 5.0, 30.0]
 }
 
 # range of the L channel values that guarantee valid detection
-L_RANGE = [4, 80]
+L_RANGE = [5, 90]
 
 # the minimum value given by a cell that we consider a positive detection
 COLOR_CONFIDENCE = 0.3
@@ -108,7 +109,7 @@ COLOR_TARGET = {"purple": (255,0,255),
                 "green": (0,255,0)}
 
 # peer blimp color
-COLOR_PEER = {"red": (255, 0, 0)}
+COLOR_PEER = {}# {"red": (255, 0, 0)}
 
 # parameters for removing noises and neighbor colors
 NEIGHBOR_REMOVAL = False
@@ -170,7 +171,7 @@ TARGET_YELLOW = [(63, 90, -32, -12, 28, 54)]#[(38, 92, -25, -5, 22, 50)]
 TARGET_COLOR = TARGET_YELLOW
 WAIT_TIME_US = 1000000//frame_rate
 
-SATURATION = 96 # global saturation for goal detection mode - not affected by ADVANCED_SENSOR_SETUP, defeult 64
+SATURATION = 128 # global saturation for goal detection mode - not affected by ADVANCED_SENSOR_SETUP, defeult 64
 CONTRAST = 40 # global contrast for goal detection mode - not affected by ADVANCED_SENSOR_SETUP, defeult 48
 ADVANCED_SENSOR_SETUP = False # fine-tune the sensor for goal
 
@@ -281,11 +282,8 @@ class Grid:
         self.num_cols = num_cols
         self.cell_width = int(img_width / num_cols)
         self.cell_height = int(img_height / num_rows)
-        self.grid_img_bf = sensor.alloc_extra_fb(num_cols, num_rows, sensor.GRAYSCALE).bytearray()
-
-
-    def __del__(self):
-        sensor.dealloc_extra_fb()
+        # self.grid_img_bf = sensor.alloc_extra_fb(num_cols, num_rows, sensor.GRAYSCALE).bytearray()
+        self.image_bytearray = bytearray(num_cols * num_rows)
 
 
     # an optimized counting method that ``batch-counts'' all cells using ulab numpy
@@ -350,12 +348,6 @@ class Grid:
                     img.draw_rectangle(roi, color=(0, 0, 0), thickness=1)
 
 
-    def normalize(self, ones):
-        totalones = max(sum(ones), 1)
-        nones = [i / totalones for i in ones]
-        return nones
-
-
     def statistics(self, nones):
         # Compute the mean of the sample vector
         mean = sum(nones) / len(nones)
@@ -386,12 +378,14 @@ class Grid:
             ndarray_morphed_metric = np.array(metric, dtype=np.float)*pixel_scale/kernel_scale
         else:
             ndarray_metric = np.array(metric*pixel_scale, dtype=np.float).reshape((N_ROWS, N_COLS))
-            metric_image = image.Image(ndarray_metric, buffer=self.grid_img_bf)
+            metric_image = image.Image(ndarray_metric, buffer=self.image_bytearray)
             metric_image.morph(KERNEL_SIZE//2, kernel_matrix)
-            ndarray_morphed_metric = metric_image.to_ndarray(dtype=np.uint8).flatten()
+            ndarray_morphed_metric = metric_image.to_ndarray(dtype="f").flatten()
 
         max_val = np.max(ndarray_morphed_metric)
-        indices = np.where(abs(ndarray_morphed_metric - max_val) < 0.5, np.arange(len(ndarray_morphed_metric)), -1)
+        # print(np.mean(abs(ndarray_morphed_metric - max_val)))
+        # print(np.std(abs(ndarray_morphed_metric - max_val)))
+        indices = np.where(abs(ndarray_morphed_metric - max_val) < 1, np.arange(len(ndarray_morphed_metric)), -1)
         matching_indices = indices[indices != -1]
         same_val_rc = [self._index_to_matrix(i) for i in matching_indices]
         return None, None, max_val*kernel_scale//pixel_scale, same_val_rc
@@ -442,11 +436,10 @@ class Grid:
         return max_row, max_col, max_val, same_val_rc
 
 
-
     def action(self, metric):
         if PROFILING:
             start_time = time.ticks_us()
-        _, _, max_val, same_val_rc = self.optimized_loop(metric)
+        _, _, max_val, same_val_rc = self.kernel_count(metric)
         if PROFILING:
             print("Pooling: {} us".format(time.ticks_diff(time.ticks_us(), start_time)))
         sum_row, sum_col = 0, 0
@@ -1571,32 +1564,76 @@ def init_sensor_target(tracking_type:int, framesize=FRAME_SIZE, windowsize=None)
             # sensor.set_saturation(3) # saturation setup is broken for openmv rt1062
             sensor.set_auto_whitebal(False, rgb_gain_db=(R_GAIN, G_GAIN, B_GAIN))
             sensor.set_auto_exposure(True)
-            sensor.set_contrast(-3)
-            sensor.set_brightness(1)
+            # sensor.set_contrast(-3)
+            # sensor.set_brightness(1)
 
             # ISP setup:
-            # sensor.__write_reg(0x5000, 0b00100111) # [7]: lens correction, [5]: raw gamma
-                                                   # [2:1]: black/white pixel cancellation
-                                                   # [0]: color interpolation
+            # sensor.__write_reg(0x5000, 0b10100001)    # [7]: lens correction, [5]: raw gamma
+                                                        # [2:1]: black/white pixel cancellation
+                                                        # [0]: color interpolation
             # sensor.__write_reg(0x5001, sensor.__read_reg(0x5001) | 0b00000110) # [7]: SFX, [5]: scaling
             # sensor.__write_reg(0x5001, sensor.__read_reg(0x5001) & 0b01111111) # [2]: UV average,
                                                                                # [1]: color matrix
                                                                                # [0]: AWB
+            # BR_h_rec = 1023
+            # BR_v_rec = 0
+            # G_h_rec = 0
+            # G_v_rec = 0
+            # sensor.__write_reg(0x583e, 64)  # Maximum gain: default 64
+            # sensor.__write_reg(0x583f, 32)  # Minimum gain: default 32
+            # sensor.__write_reg(0x5840, 24)  # Minimum Q: default 24
+            # sensor.__write_reg(0x5841, 0b00001101)  # default 1101
+            #                                         # Bit[3]: Add BLC enable
+            #                                         #   0: Disable BLC add back function
+            #                                         #   1: Enable BLC add back function
+            #                                         # Bit[2]: BLC enable
+            #                                         #   0: Disable BLC function
+            #                                         #   1: Enable BLC function
+            #                                         # Bit[1]: Gain manual enable
+            #                                         # Bit[0]: Auto Q enable
+            #                                         #   0: Used constant Q (0x40)
+            #                                         #   1: Used calculated Q
+            # sensor.__write_reg(0x5842, BR_h_rec >> 8)   # BR h[10:8]
+            # sensor.__write_reg(0x5843, BR_h_rec & 0xff) # BR h[7:0]
+            # sensor.__write_reg(0x5844, BR_v_rec >> 8)   # BR v[10:8]
+            # sensor.__write_reg(0x5845, BR_v_rec & 0xff) # BR v[7:0]
+            # sensor.__write_reg(0x5846, G_h_rec >> 8)    # G  h[10:8]
+            # sensor.__write_reg(0x5847, G_h_rec & 0xff)  # G  h[7:0]
+            # sensor.__write_reg(0x5848, G_v_rec >> 8)    # G  v[10:8]
+            # sensor.__write_reg(0x5849, G_v_rec & 0xff)  # G  v[7:0]
 
-            # enable saturation setup
-            sensor.__write_reg(0x5580, sensor.__read_reg(0x5580) | 0x02)
-            sensor.__write_reg(0x5583, SATURATION)
-            sensor.__write_reg(0x5584, SATURATION)
+            # color settings - contrast, brightness, and saturation
+            # Do refer to page 49 of this document
+            # https://www.arducam.com/downloads/modules/OV5640/OV5640_Software_app_note_parallel.pdf
+            # contrast set to -3
+            sensor.__write_reg(0x3212, 0x03)
+            sensor.__write_reg(0x5586, 0x14)
+            sensor.__write_reg(0x5585, 0x14)
+            sensor.__write_reg(0x3212, 0x13)
+            sensor.__write_reg(0x3212, 0xa3)
 
-            # sensor.__write_reg(0x5000, 0b10100111)
-            # sensor.__write_reg(0x5842, 0b00000000) # BR h[10:8]
-            # sensor.__write_reg(0x5843, 0b00000000) # BR h[7:0]
-            # sensor.__write_reg(0x5844, 0b00000000) # BR v[10:8]
-            # sensor.__write_reg(0x5845, 0b00000000) # BR v[7:0]
-            # sensor.__write_reg(0x5846, 0b00000010) # G  h[10:8]
-            # sensor.__write_reg(0x5847, 0b10000000) # G  h[7:0]
-            # sensor.__write_reg(0x5848, 0b00000001) # G  v[10:8]
-            # sensor.__write_reg(0x5849, 0b00100000) # G  v[7:0]
+            # brightness set to +4
+            sensor.__write_reg(0x3212, 0x03)
+            sensor.__write_reg(0x5587, 0x40)
+            sensor.__write_reg(0x5588, 0x09)
+            sensor.__write_reg(0x3212, 0x13)
+            sensor.__write_reg(0x3212, 0xa3)
+
+            # saturation set to +3
+            sensor.__write_reg(0x3212, 0x03)
+            sensor.__write_reg(0x5381, 0x1c)
+            sensor.__write_reg(0x5382, 0x5a)
+            sensor.__write_reg(0x5383, 0x06)
+            sensor.__write_reg(0x5384, 0x2b)
+            sensor.__write_reg(0x5385, 0xab)
+            sensor.__write_reg(0x5386, 0xd6)
+            sensor.__write_reg(0x5387, 0xda)
+            sensor.__write_reg(0x5388, 0xd6)
+            sensor.__write_reg(0x5389, 0x04)
+            sensor.__write_reg(0x538b, 0x98)
+            sensor.__write_reg(0x538a, 0x01)
+            sensor.__write_reg(0x3212, 0x13)
+            sensor.__write_reg(0x3212, 0xa3)
     else:
         raise ValueError("Not a valid sensor-detection mode!")
 
@@ -1770,7 +1807,7 @@ if __name__ == "__main__":
             print("0 flag!")
             assert(flag == 0)
 
-        print("fps: ", clock.fps())
+        # print("fps: ", clock.fps())
 
         uart.write(msg)
         if uart.any():
