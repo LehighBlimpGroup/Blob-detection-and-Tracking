@@ -47,9 +47,9 @@ elif FRAME_SIZE == sensor.HQVGA:
 # manual white balance - to be used with *get_gains.py* in the repository
 # - see RGB gain readings in the console
 if board == OPENMV:
-    R_GAIN, G_GAIN, B_GAIN = [61.56914, 60.206, 65.34813]
+    R_GAIN, G_GAIN, B_GAIN = [61.09226, 60.206, 65.8096]
 elif board == NICLA:
-    R_GAIN, G_GAIN, B_GAIN = [64, 64, 103]
+    R_GAIN, G_GAIN, B_GAIN = [64, 66, 107]
 
 ########## NOTE: MACROS for balloon detection #############
 # Grid setup
@@ -78,17 +78,17 @@ COMBINE_TARGETS = False
 # to be used with
 if board == OPENMV:
     COLOR_DATA = {
-        "purple": [[16.732471790915227, -15.668434757450092] ,  [[0.3136650372653398, 0.19485529025928053], [0.19485529025928053, 0.1335599217757186]]],
-        "green": [[-11.66613256872997, 13.481362793051105] ,  [[0.059393970052863745, 0.03651851702833214], [0.03651851702833214, 0.04570732829578673]]],
-        "blue": [[18.7854, -10.05301], [[3.8293, -1.8963], [-1.8963, 17.7735]]],
-        "red": [[42.01334903808402, 20.50530035335689] ,  [[0.01419921622178408, -0.010337187414071827], [-0.010337187414071825, 0.016876163913575336]]]
+        "purple": [[5.213623129528066, -17.349448168460967] ,  [[0.1974462824108102, 0.1227573728137621], [0.1227573728137621, 0.09192133248533506]]],
+        "green": [[-19.080547213880546, 16.37237237237237] ,  [[0.07584740112072938, 0.04748464572094526], [0.047484645720945254, 0.03976537834067772]]],
+        "blue": [[-0.08622366288492707, -21.085143165856294] ,  [[0.405955173972352, 0.11825244006317702], [0.11825244006317703, 0.04203593483634022]]],
+        "red": [ [27.87526719476927, 31.519175154029927] ,  [[0.05124396667513177, -0.04660140857089902], [-0.04660140857089902, 0.05062014660103876]]]
     } # openmv
 elif board == NICLA:
     COLOR_DATA = {
-        "purple": [[20.181266059331932, -33.875262789067975] ,  [[0.18805142593804078, 0.14040366096167953], [0.14040366096167953, 0.12841161359627176]]],
-        "green": [[-42.17613830879836, 28.89164669633687] ,  [[0.025048399242902798, 0.016983826988058254], [0.016983826988058254, 0.01644179035001752]]],
-        "blue": [[18.7854, -10.05301], [[3.8293, -1.8963], [-1.8963, 17.7735]]],
-        "red": [[54.89488372093023, 39.03813953488372] ,  [[0.03884277545995741, -0.04972294704777547], [-0.04972294704777547, 0.08340376032641221]]]
+        "purple": [[15.165694631374308, -34.216689098250335] ,  [[0.10253002976000972, 0.05822587715229362], [0.05822587715229361, 0.03829884277316584]]],
+        "green": [[-37.594348659003835, 27.27027458492976] ,  [[0.021683063472278143, 0.015702164173155612], [0.015702164173155612, 0.016122091475243402]]],
+        "blue": [[9.864389753892516, -27.63184329482672] ,  [[0.03367952546339169, 0.0075301482846778026], [0.007530148284677802, 0.011377635851792326]]],
+        "red": [[55.984709480122326, 28.437716615698267] ,  [[0.02004858586148455, -0.03098604386709813], [-0.030986043867098134, 0.10961070382238958]]]
     } # nicla
 
 
@@ -97,15 +97,19 @@ elif board == NICLA:
 # [1]: for filtering out uniform colors such as a light source, higher -> less positive detection
 # [2]: for filtering out messy background/environment, lower -> less positive detection
 COLOR_SENSITIVITY = {
-    "purple": [2.0, 5.0, 30.0],
-    "green": [3.0, 3.0, 30.0],
-    "blue": [2.0, 5.0, 30.0],
-    "red": [2.0, 5.0, 30.0]
+    "purple": [2.0, 3.0, 28.0],
+    "green": [2.0, 4.0, 30.0],
+    "blue": [2.0, 3.0, 25.0],
+    "red": [3.0, 2.0, 30.0]
 }
 
 # range of the L channel values that guarantee valid detection
-L_RANGE = [5, 90]
-
+L_RANGE = {
+    "purple": [4, 80],
+    "green": [8, 75],
+    "blue": [5, 80],
+    "red": [5, 80]
+}
 # the minimum value given by a cell that we consider a positive detection
 COLOR_CONFIDENCE = 0.3
 
@@ -114,7 +118,7 @@ COLOR_TARGET = {"purple": (255,0,255),
                 "green": (0,255,0)}
 
 # peer blimp color
-COLOR_PEER = {}# {"red": (255, 0, 0)}
+COLOR_PEER = {} # {"red": (255, 0, 0)}
 
 # parameters for removing noises and neighbor colors
 NEIGHBOR_REMOVAL = False
@@ -176,7 +180,7 @@ TARGET_YELLOW = [(63, 90, -32, -12, 28, 54)]#[(38, 92, -25, -5, 22, 50)]
 TARGET_COLOR = TARGET_YELLOW
 WAIT_TIME_US = 1000000//frame_rate
 
-SATURATION = 128 # global saturation for goal detection mode - not affected by ADVANCED_SENSOR_SETUP, defeult 64
+SATURATION = 64 # global saturation for goal detection mode - not affected by ADVANCED_SENSOR_SETUP, defeult 64
 CONTRAST = 40 # global contrast for goal detection mode - not affected by ADVANCED_SENSOR_SETUP, defeult 48
 ADVANCED_SENSOR_SETUP = False # fine-tune the sensor for goal
 
@@ -1573,42 +1577,42 @@ def init_sensor_target(tracking_type:int, framesize=FRAME_SIZE, windowsize=None)
             # sensor.__write_reg(0x3103, 0x03) # SCCB system control
 
             # ISP setup:
-            sensor.__write_reg(0x5000, 0b10100111)  # [7]: lens correction, [5]: raw gamma
+            sensor.__write_reg(0x5000, 0b00100111)  # [7]: lens correction, [5]: raw gamma
                                                     # [2:1]: black/white pixel cancellation
                                                     # [0]: color interpolation
             sensor.__write_reg(0x5001, sensor.__read_reg(0x5001) | 0b10000110)# [7]: SFX, [5]: scaling
             # sensor.__write_reg(0x5001, sensor.__read_reg(0x5001) & 0b11011111)  # [2]: UV average,
                                                                                 # [1]: color matrix
                                                                                 # [0]: AWB
-            openmv_set_saturation_brightness_contrast(saturation=1, brightness=2, contrast=-3, ev=1)
+            openmv_set_saturation_brightness_contrast(saturation=0, brightness=1, contrast=-3, ev=-1)
 
             # lens correction parameters
-            BR_h_rec = 0
-            BR_v_rec = 0
-            G_h_rec = 256
-            G_v_rec = 256
-            sensor.__write_reg(0x583e, 255)  # Maximum gain: default 64
-            sensor.__write_reg(0x583f, 0)  # Minimum gain: default 32
-            sensor.__write_reg(0x5840, 0)  # Minimum Q: default 24
-            sensor.__write_reg(0x5841, 0b00000001)  # default 1101
-                                                    # Bit[3]: Add BLC enable
-                                                    #   0: Disable BLC add back function
-                                                    #   1: Enable BLC add back function
-                                                    # Bit[2]: BLC enable
-                                                    #   0: Disable BLC function
-                                                    #   1: Enable BLC function
-                                                    # Bit[1]: Gain manual enable
-                                                    # Bit[0]: Auto Q enable
-                                                    #   0: Used constant Q (0x40)
-                                                    #   1: Used calculated Q
-            sensor.__write_reg(0x5842, BR_h_rec >> 8)   # BR h[10:8]
-            sensor.__write_reg(0x5843, BR_h_rec & 0xff) # BR h[7:0]
-            sensor.__write_reg(0x5844, BR_v_rec >> 8)   # BR v[10:8]
-            sensor.__write_reg(0x5845, BR_v_rec & 0xff) # BR v[7:0]
-            sensor.__write_reg(0x5846, G_h_rec >> 8)    # G  h[10:8]
-            sensor.__write_reg(0x5847, G_h_rec & 0xff)  # G  h[7:0]
-            sensor.__write_reg(0x5848, G_v_rec >> 8)    # G  v[10:8]
-            sensor.__write_reg(0x5849, G_v_rec & 0xff)  # G  v[7:0]
+            # BR_h_rec = 0
+            # BR_v_rec = 0
+            # G_h_rec = 256
+            # G_v_rec = 256
+            # sensor.__write_reg(0x583e, 255)  # Maximum gain: default 64
+            # sensor.__write_reg(0x583f, 0)  # Minimum gain: default 32
+            # sensor.__write_reg(0x5840, 0)  # Minimum Q: default 24
+            # sensor.__write_reg(0x5841, 0b00000001)  # default 1101
+            #                                         # Bit[3]: Add BLC enable
+            #                                         #   0: Disable BLC add back function
+            #                                         #   1: Enable BLC add back function
+            #                                         # Bit[2]: BLC enable
+            #                                         #   0: Disable BLC function
+            #                                         #   1: Enable BLC function
+            #                                         # Bit[1]: Gain manual enable
+            #                                         # Bit[0]: Auto Q enable
+            #                                         #   0: Used constant Q (0x40)
+            #                                         #   1: Used calculated Q
+            # sensor.__write_reg(0x5842, BR_h_rec >> 8)   # BR h[10:8]
+            # sensor.__write_reg(0x5843, BR_h_rec & 0xff) # BR h[7:0]
+            # sensor.__write_reg(0x5844, BR_v_rec >> 8)   # BR v[10:8]
+            # sensor.__write_reg(0x5845, BR_v_rec & 0xff) # BR v[7:0]
+            # sensor.__write_reg(0x5846, G_h_rec >> 8)    # G  h[10:8]
+            # sensor.__write_reg(0x5847, G_h_rec & 0xff)  # G  h[7:0]
+            # sensor.__write_reg(0x5848, G_v_rec >> 8)    # G  v[10:8]
+            # sensor.__write_reg(0x5849, G_v_rec & 0xff)  # G  v[7:0]
             # sensor.__write_reg(0x3008, 0x02) # software power up
 
             sensor.set_auto_exposure(True)
@@ -1887,12 +1891,13 @@ if __name__ == "__main__":
             neighbor = COLOR_NEIGHBOR[color][0]
         mu = COLOR_DATA[color][0]
         sigma_inv = COLOR_DATA[color][1]
-        decay=COLOR_SENSITIVITY[color][0]
+        decay = COLOR_SENSITIVITY[color][0]
+        l_range = L_RANGE[color]
 
         detectors[color] = ColorDetector(
             color, line_ref = None,
             detector_type=detector_type,
-            max_dist=None, std_range=std_range, light_range=L_RANGE,
+            max_dist=None, std_range=std_range, light_range=l_range,
             rgb=rgb, mahalanobis=True,
             mu=mu, sigma_inv=sigma_inv,
             decay=decay,
@@ -1946,12 +1951,15 @@ if __name__ == "__main__":
         elif flag & 0b01000000:
             # balloon detection mode
             x_roi, y_roi, w_roi, h_roi, x_value, y_value, w_value, h_value, just_zero = feature_vector
-            if board == NICLA:
-                msg = IBus_message([flag, x_roi, y_roi, w_roi, h_roi,
-                                    x_value, y_value, w_value, h_value, 9999])
-            elif board == OPENMV:
-                msg = IBus_message([flag, FRAME_PARAMS[2] - x_roi, FRAME_PARAMS[3] - y_roi, w_roi, h_roi,
-                                    FRAME_PARAMS[2] - x_value, FRAME_PARAMS[3] - y_value, w_value, h_value, 9999])
+            if flag & 0x03:
+                if board == NICLA:
+                    msg = IBus_message([flag, x_roi, y_roi, w_roi, h_roi,
+                                        x_value, y_value, w_value, h_value, 9999])
+                elif board == OPENMV:
+                    msg = IBus_message([flag, FRAME_PARAMS[2] - x_roi, FRAME_PARAMS[3] - y_roi, w_roi, h_roi,
+                                        FRAME_PARAMS[2] - x_value, FRAME_PARAMS[3] - y_value, w_value, h_value, 9999])
+            else:
+                msg = IBus_message([flag, 0, 0, 0, 0, 0, 0, 0, 0, 9999])
         else:
             print("0 flag!")
             assert(flag == 0)
