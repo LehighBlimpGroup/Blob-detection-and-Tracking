@@ -31,7 +31,7 @@ if board == OPENMV:
 
 # framesize setup, nicla cannot handle anything above HQVGA
 # openmv, on the other hand, is recommended to run with QVGA
-FRAME_SIZE = sensor.QVGA
+FRAME_SIZE = sensor.HQVGA
 if board == NICLA:
     FRAME_SIZE = sensor.HQVGA
 FRAME_PARAMS = None
@@ -47,27 +47,27 @@ elif FRAME_SIZE == sensor.HQVGA:
 # manual white balance - to be used with *get_gains.py* in the repository
 # - see RGB gain readings in the console
 if board == OPENMV:
-    R_GAIN, G_GAIN, B_GAIN = [61.09226, 60.206, 65.8096]
+    R_GAIN, G_GAIN, B_GAIN = [62, 60, 65]
 elif board == NICLA:
-    R_GAIN, G_GAIN, B_GAIN = [64, 66, 107]
+    R_GAIN, G_GAIN, B_GAIN = [70, 64, 112]
 
 ########## NOTE: MACROS for balloon detection #############
 # Grid setup
-N_ROWS = 10
-N_COLS = 15
+N_ROWS = 14
+N_COLS = 21
 
 random.seed(time.time())
-START_ROW = random.randint(0, N_ROWS-4)
-START_COL = random.randint(0, N_COLS-4)
-print(START_ROW, START_COL)
+NUM_CELLS = 2
+START_ROW = random.randint(0, N_ROWS-NUM_CELLS-1)
+START_COL = random.randint(0, N_COLS-NUM_CELLS-1)
 
 # Probablistic filter for balloon detection
 FILTER = True
-L_MAX = 10
-L_MIN = -6
+L_MAX = 4
+L_MIN = -4
 
 # print the stats in a 3x3 cell - for balloon color data collection
-PRINT_CORNER = False
+PRINT_CORNER = True
 PLOT_METRIC = not PRINT_CORNER
 
 # whether combine detction of green and purple as target balloons
@@ -78,17 +78,17 @@ COMBINE_TARGETS = False
 # to be used with
 if board == OPENMV:
     COLOR_DATA = {
-        "purple": [[5.213623129528066, -17.349448168460967] ,  [[0.1974462824108102, 0.1227573728137621], [0.1227573728137621, 0.09192133248533506]]],
-        "green": [[-19.080547213880546, 16.37237237237237] ,  [[0.07584740112072938, 0.04748464572094526], [0.047484645720945254, 0.03976537834067772]]],
+        "purple": [[10.09740117929679, -16.2830312295261] ,  [[0.14252075026488756, 0.08505590360254184], [0.08505590360254182, 0.06299706193187056]]],
+        "green": [[-17.31087762669963, 20.45673671199011] ,  [[0.05035778789810967, 0.006959454955881145], [0.006959454955881145, 0.027324987194130474]]],
         "blue": [[-0.08622366288492707, -21.085143165856294] ,  [[0.405955173972352, 0.11825244006317702], [0.11825244006317703, 0.04203593483634022]]],
-        "red": [ [27.87526719476927, 31.519175154029927] ,  [[0.05124396667513177, -0.04660140857089902], [-0.04660140857089902, 0.05062014660103876]]]
+        "red": [[35.494601328903656, 32.24958471760797] ,  [[0.24644136648942605, -0.2762493355717791], [-0.2762493355717791, 0.3291565103824226]]]
     } # openmv
 elif board == NICLA:
     COLOR_DATA = {
-        "purple": [[15.165694631374308, -34.216689098250335] ,  [[0.10253002976000972, 0.05822587715229362], [0.05822587715229361, 0.03829884277316584]]],
-        "green": [[-37.594348659003835, 27.27027458492976] ,  [[0.021683063472278143, 0.015702164173155612], [0.015702164173155612, 0.016122091475243402]]],
+        "purple": [[20.9770206022187, -40.33423137876387] ,  [[0.05823075171634991, 0.04383592846614159], [0.04383592846614159, 0.039394290368319526]]],
+        "green": [[-22.046583850931675, 14.56538084341288] ,  [[0.05242700848437818, 0.04091425222642805], [0.04091425222642805, 0.042753337696364024]]],
         "blue": [[9.864389753892516, -27.63184329482672] ,  [[0.03367952546339169, 0.0075301482846778026], [0.007530148284677802, 0.011377635851792326]]],
-        "red": [[55.984709480122326, 28.437716615698267] ,  [[0.02004858586148455, -0.03098604386709813], [-0.030986043867098134, 0.10961070382238958]]]
+        "red": [[46.1673582295989, 24.216920239741818] ,  [[0.017068347601705152, -0.01842501845188352], [-0.01842501845188352, 0.04184002848600741]]]
     } # nicla
 
 
@@ -97,25 +97,26 @@ elif board == NICLA:
 # [1]: for filtering out uniform colors such as a light source, higher -> less positive detection
 # [2]: for filtering out messy background/environment, lower -> less positive detection
 COLOR_SENSITIVITY = {
-    "purple": [2.0, 3.0, 28.0],
-    "green": [2.0, 4.0, 30.0],
+    "purple": [1.5, 3.0, 24.0],
+    "green": [2.0, 5.0, 24.0],
     "blue": [2.0, 3.0, 25.0],
-    "red": [3.0, 2.0, 30.0]
+    "red": [1.5, 3.0, 24.0]
 }
 
 # range of the L channel values that guarantee valid detection
 L_RANGE = {
-    "purple": [4, 80],
-    "green": [8, 75],
+    "purple": [5, 60],
+    "green": [6, 70],
     "blue": [5, 80],
-    "red": [5, 80]
+    "red": [3, 60]
 }
 # the minimum value given by a cell that we consider a positive detection
 COLOR_CONFIDENCE = 0.3
 
 # target balloon colors {color id: (RGB value for visulization)}
-COLOR_TARGET = {"purple": (255,0,255),
-                "green": (0,255,0)}
+COLOR_TARGET = {"purple": (255,0,255),}
+                # "green": (0,255,0),
+                #"red": (255,0,0)}
 
 # peer blimp color
 COLOR_PEER = {} # {"red": (255, 0, 0)}
@@ -130,7 +131,7 @@ COLOR_NEIGHBOR = {} # {"blue": ("purple", (0,0,255))}
 # tracking parameters
 MAX_LOST_FRAME_TARGET = 20 # maximum number of frames without a positive balloon detection
                            # with data of the current detection still reported to the controller
-MAX_LOST_FRAME_GOAL = 10   # maximum number of frames without a positive goal detection
+MAX_LOST_FRAME_GOAL = 40   # maximum number of frames without a positive goal detection
 MOMENTUM = 0.0 # keep the tracking result move if the detection is momentarily lost
 
 # action kernel setup
@@ -176,7 +177,7 @@ GF_SIZE = 0.3 # The gain factor for the size
 frame_rate = 80 # target framerate that is a lie
 TARGET_ORANGE = [(39, 58, 4, 24, 12, 41)] #(12, 87, -9, 62, 15, 50)
 TARGET_COLOR2 = [(56, 76, -36, -15, 29, 58)]
-TARGET_YELLOW = [(63, 90, -32, -12, 28, 54)]#[(38, 92, -25, -5, 22, 50)]
+TARGET_YELLOW = [(29, 93, -43, -14, 11, 50)]#[(40, 67, -31, -15, 27, 55)]
 TARGET_COLOR = TARGET_YELLOW
 WAIT_TIME_US = 1000000//frame_rate
 
@@ -307,7 +308,7 @@ class Grid:
         stats_array = np.zeros((num_rows*num_cols, 6), dtype=np.float)
         for row in range(num_rows):
             row_start = row * cell_height
-            print_corner_row = PRINT_CORNER and START_ROW < row < START_ROW + 4
+            print_corner_row = PRINT_CORNER and START_ROW < row < START_ROW + NUM_CELLS + 1
 
             for col in range(num_cols):
                 col_start = col * cell_width
@@ -324,7 +325,7 @@ class Grid:
 
                 stats_array[self._matrix_to_index(row, col), :] = np.array([l_mean, a_mean, b_mean, l_stdev, a_stdev, b_stdev])
 
-                if print_corner_row and START_COL < col < START_COL + 4:
+                if print_corner_row and START_COL < col < START_COL + NUM_CELLS+1:
                     print((a_mean, b_mean), end=', ')
 
             if print_corner_row:
@@ -351,7 +352,7 @@ class Grid:
     def plot_data_collection(self):
         for row in range(self.num_rows):
             for col in range(self.num_cols):
-                if START_ROW<row<START_ROW+4 and START_COL<col<START_COL+4:
+                if START_ROW<row<START_ROW+NUM_CELLS+1 and START_COL<col<START_COL+NUM_CELLS+1:
                     # Draw the ROI on the image
                     roi = (col * self.cell_width, row * self.cell_height, self.cell_width+1, self.cell_height+1)
                     img.draw_rectangle(roi, color=(0, 0, 0), thickness=1)
@@ -553,9 +554,9 @@ class BalloonTracker:
             else:
                 self.velx = ux - self.ux
                 self.vely = uy - self.uy
-                self.ux = 0.6*ux + 0.4*self.ux
-                self.uy = 0.6*uy + 0.4*self.uy
-                self.val = 0.25*self.val + 0.75*val
+                self.ux = 0.55*ux + 0.45*self.ux
+                self.uy = 0.55*uy + 0.45*self.uy
+                self.val = 0.35*self.val + 0.65*val
                 self.flag = 3 - self.flag
                 if PLOT_METRIC:
                     img.draw_circle(int(ux), int(uy), int(5), color=(0,255,255), thickness=4, fill=True)
@@ -715,10 +716,10 @@ class MemROI:
             self.roi = self._map(self.roi, self.frame_params, 0) # Map the ROI to the frame by the forgetting factors
         else:
             # Scale up the new_roi
-            expanded_roi = [new_roi[0] - 0.15 * new_roi[2],
-                            new_roi[1] - 0.15 * new_roi[3],
-                            1.3 * new_roi[2],
-                            1.3 * new_roi[3]]
+            expanded_roi = [new_roi[0] - 0.1 * new_roi[2],
+                            new_roi[1] - 0.1 * new_roi[3],
+                            1.2 * new_roi[2],
+                            1.2 * new_roi[3]]
 
             self.roi = self._map(self.roi, expanded_roi, 1) # Map the ROI to the new_roi by the gain factors
         self._clamp() # Clamp the ROI to be within the frame
@@ -1565,7 +1566,7 @@ def init_sensor_target(tracking_type:int, framesize=FRAME_SIZE, windowsize=None)
 
             # color setup - saturation
             sensor.__write_reg(0xfe, 2)     # change to registers at page 2
-            sensor.__write_reg(0xd0, 128)    # change global saturation,
+            sensor.__write_reg(0xd0, 96)    # change global saturation,
             sensor.__write_reg(0xd1, 48)    # Cb saturation
             sensor.__write_reg(0xd2, 48)    # Cr saturation
             sensor.__write_reg(0xd3, 40)    # contrast
@@ -1584,7 +1585,7 @@ def init_sensor_target(tracking_type:int, framesize=FRAME_SIZE, windowsize=None)
             # sensor.__write_reg(0x5001, sensor.__read_reg(0x5001) & 0b11011111)  # [2]: UV average,
                                                                                 # [1]: color matrix
                                                                                 # [0]: AWB
-            openmv_set_saturation_brightness_contrast(saturation=0, brightness=1, contrast=-3, ev=-1)
+            openmv_set_saturation_brightness_contrast(saturation=1, brightness=1, contrast=3, ev=0)
 
             # lens correction parameters
             # BR_h_rec = 0
@@ -1942,7 +1943,8 @@ if __name__ == "__main__":
                 h_value = int(feature_vec[3])
                 if board == NICLA:
                     msg = IBus_message([flag, x_value, y_roi, w_roi, h_roi,
-                                        x_value, y_value, w_value, h_value, 9999])
+                                        x_value, y_value, w_value, h_value, 8])
+                    print(x_value, y_roi, w_roi, h_roi, x_value, y_value, w_value, h_value)
                 elif board == OPENMV:
                     msg = IBus_message([flag, FRAME_PARAMS[2] - x_value, FRAME_PARAMS[3] - y_roi, w_roi, h_roi,
                                         FRAME_PARAMS[2] - x_value, FRAME_PARAMS[3] - y_value, w_value, h_value, 9999])
