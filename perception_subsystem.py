@@ -49,7 +49,7 @@ elif FRAME_SIZE == sensor.HQVGA:
 if board == OPENMV:
     R_GAIN, G_GAIN, B_GAIN = [62, 60, 65]
 elif board == NICLA:
-    R_GAIN, G_GAIN, B_GAIN = [70, 64, 112]
+    R_GAIN, G_GAIN, B_GAIN = [70, 66, 115]
 
 ########## NOTE: MACROS for balloon detection #############
 # Grid setup
@@ -67,7 +67,7 @@ L_MAX = 4
 L_MIN = -4
 
 # print the stats in a 3x3 cell - for balloon color data collection
-PRINT_CORNER = True
+PRINT_CORNER = False
 PLOT_METRIC = not PRINT_CORNER
 
 # whether combine detction of green and purple as target balloons
@@ -78,17 +78,17 @@ COMBINE_TARGETS = False
 # to be used with
 if board == OPENMV:
     COLOR_DATA = {
-        "purple": [[10.09740117929679, -16.2830312295261] ,  [[0.14252075026488756, 0.08505590360254184], [0.08505590360254182, 0.06299706193187056]]],
-        "green": [[-17.31087762669963, 20.45673671199011] ,  [[0.05035778789810967, 0.006959454955881145], [0.006959454955881145, 0.027324987194130474]]],
+        "purple": [[23.36438596491228, -39.03035087719298] ,  [[0.0648033747896978, 0.055988642505018865], [0.05598864250501887, 0.058994799618367275]]],
+        "green": [[-20.875354509359045, 8.56792399319342] ,  [[0.060236044299697374, 0.04894408879238302], [0.04894408879238302, 0.0646636883366453]]],
         "blue": [[-0.08622366288492707, -21.085143165856294] ,  [[0.405955173972352, 0.11825244006317702], [0.11825244006317703, 0.04203593483634022]]],
         "red": [[35.494601328903656, 32.24958471760797] ,  [[0.24644136648942605, -0.2762493355717791], [-0.2762493355717791, 0.3291565103824226]]]
     } # openmv
 elif board == NICLA:
     COLOR_DATA = {
-        "purple": [[20.9770206022187, -40.33423137876387] ,  [[0.05823075171634991, 0.04383592846614159], [0.04383592846614159, 0.039394290368319526]]],
-        "green": [[-22.046583850931675, 14.56538084341288] ,  [[0.05242700848437818, 0.04091425222642805], [0.04091425222642805, 0.042753337696364024]]],
-        "blue": [[9.864389753892516, -27.63184329482672] ,  [[0.03367952546339169, 0.0075301482846778026], [0.007530148284677802, 0.011377635851792326]]],
-        "red": [[46.1673582295989, 24.216920239741818] ,  [[0.017068347601705152, -0.01842501845188352], [-0.01842501845188352, 0.04184002848600741]]]
+        "purple": [[23.36438596491228, -39.03035087719298] ,  [[0.0648033747896978, 0.055988642505018865], [0.05598864250501887, 0.058994799618367275]]],
+        "green": [[-20.875354509359045, 8.56792399319342] ,  [[0.060236044299697374, 0.04894408879238302], [0.04894408879238302, 0.0646636883366453]]],
+        "blue": [[13.596253902185223, -33.79474505723205] ,  [[0.13004108243366663, 0.06653979100910323], [0.06653979100910323, 0.04018167036620918]]],
+        "red": [[53.568024861878456, 11.724102209944752] ,  [[0.03232165802049636, -0.021282694514752485], [-0.021282694514752485, 0.03727551356108449]]]
     } # nicla
 
 
@@ -97,35 +97,35 @@ elif board == NICLA:
 # [1]: for filtering out uniform colors such as a light source, higher -> less positive detection
 # [2]: for filtering out messy background/environment, lower -> less positive detection
 COLOR_SENSITIVITY = {
-    "purple": [1.5, 3.0, 24.0],
-    "green": [2.0, 5.0, 24.0],
-    "blue": [2.0, 3.0, 25.0],
-    "red": [1.5, 3.0, 24.0]
+    "purple": [2.0, 3.0, 20.0],
+    "green": [1.5, 5.0, 18.0],
+    "blue": [1.5, 3.0, 18.0],
+    "red": [3.0, 3.0, 24.0]
 }
 
 # range of the L channel values that guarantee valid detection
 L_RANGE = {
-    "purple": [5, 60],
-    "green": [6, 70],
-    "blue": [5, 80],
-    "red": [3, 60]
+    "purple": [30, 70],
+    "green": [10, 80],
+    "blue": [5, 40],
+    "red": [2, 80]
 }
 # the minimum value given by a cell that we consider a positive detection
 COLOR_CONFIDENCE = 0.3
 
 # target balloon colors {color id: (RGB value for visulization)}
-COLOR_TARGET = {"purple": (255,0,255),}
-                # "green": (0,255,0),
-                #"red": (255,0,0)}
+COLOR_TARGET = {"purple": (255,0,255),
+                "green": (0,255,0),}
+               # {"red": (255,0,0)}
 
 # peer blimp color
 COLOR_PEER = {} # {"red": (255, 0, 0)}
 
 # parameters for removing noises and neighbor colors
-NEIGHBOR_REMOVAL = False
-NEIGHBOR_REMOVAL_FACTOR = 1.3
+NEIGHBOR_REMOVAL = True
+NEIGHBOR_REMOVAL_FACTOR = 10.0
 # NEIGHBOR FORMAT: {$neighbor: ($target, RGB value for visulization)}
-COLOR_NEIGHBOR = {} # {"blue": ("purple", (0,0,255))}
+COLOR_NEIGHBOR = {"blue": ("purple", (0,0,255))}
 
 
 # tracking parameters
@@ -175,15 +175,15 @@ GF_SIZE = 0.3 # The gain factor for the size
 # setting FF_POSITION, FF_SIZE to 0 and GF_POSITION, GF_SIZE to 1
 # will make the tracking identical to the current detection
 frame_rate = 80 # target framerate that is a lie
-TARGET_ORANGE = [(39, 58, 4, 24, 12, 41)] #(12, 87, -9, 62, 15, 50)
+TARGET_ORANGE = [(16, 80, 36, 56, 10, 12)] #(12, 87, -9, 62, 15, 50)
 TARGET_COLOR2 = [(56, 76, -36, -15, 29, 58)]
-TARGET_YELLOW = [(29, 93, -43, -14, 11, 50)]#[(40, 67, -31, -15, 27, 55)]
+TARGET_YELLOW = [(25, 88, -42, -17, 30, 56)] #[(40, 67, -31, -15, 27, 55)]
 TARGET_COLOR = TARGET_YELLOW
 WAIT_TIME_US = 1000000//frame_rate
 
 SATURATION = 64 # global saturation for goal detection mode - not affected by ADVANCED_SENSOR_SETUP, defeult 64
 CONTRAST = 40 # global contrast for goal detection mode - not affected by ADVANCED_SENSOR_SETUP, defeult 48
-ADVANCED_SENSOR_SETUP = False # fine-tune the sensor for goal
+ADVANCED_SENSOR_SETUP = True # fine-tune the sensor for goal
 
 ################### NOTE: Balloon grid detection classes and functions #######################
 # color confidence filter
@@ -520,7 +520,7 @@ class BalloonTracker:
                     true_positive_targets[color] = detector.P
             elif detector.detector_type == "N":
                 neighbor_target = detector.neighbor
-                true_positive_targets[neighbor_target] = [t if t > NEIGHBOR_REMOVAL_FACTOR*n else 0 for t,n in zip(self.detectors[neighbor_target].P, detector.P)]
+                true_positive_targets[neighbor_target] = [t if (t > NEIGHBOR_REMOVAL_FACTOR*n+0.8 and n < 0.02) else 0 for t,n in zip(self.detectors[neighbor_target].P, detector.P)]
 
         # decide which color to track
         if self.balloon_color == None:
@@ -583,9 +583,9 @@ class BalloonTracker:
                 self.led_blue.on()
                 self.led_green.off()
             else:
-                self.led_red.off()
-                self.led_blue.off()
-                self.led_green.off()
+                self.led_red.on()
+                self.led_blue.on()
+                self.led_green.on()
         else:
             self.detection_count -= 1
 
@@ -621,9 +621,9 @@ class BalloonTracker:
             self.uy = -1
             self.val = 0
 
-            self.led_red.off()
-            self.led_blue.off()
-            self.led_green.off()
+            self.led_red.on()
+            self.led_blue.on()
+            self.led_green.on()
 
             self.flag = 0
             self.velx = 0
@@ -1104,17 +1104,17 @@ class GoalTracker:
         # @param {bool} detecting: If we are actually detecting the blob
         # @param {bool} lost: If we lost the blob
         if tracking and detecting and not lost:
-            self.g_LED.on()
-            self.r_LED.on()
-            self.b_LED.on()
+            self.g_LED.off()
+            self.r_LED.off()
+            self.b_LED.off()
         elif tracking and not detecting and not lost:
-            self.g_LED.on()
-            self.b_LED.on()
-            self.r_LED.on()
+            self.g_LED.off()
+            self.b_LED.off()
+            self.r_LED.off()
         elif lost:
-            self.g_LED.on()
-            self.b_LED.on()
-            self.r_LED.on()
+            self.g_LED.off()
+            self.b_LED.off()
+            self.r_LED.off()
         else:
             print("Error: Invalid LED state")
             pass
@@ -1383,7 +1383,8 @@ class GoalTracker:
                     #         rect_height = max(int(scale_y), 1)
                     # img.draw_rectangle(rect_x, rect_y, rect_width, rect_height, color=(gray_value, gray_value, gray_value), fill=True)
                     detected_shape = self.shape_detector.detect_shape(roi_img)
-                    if detected_shape != "triangle" and detected_shape != "not":
+                    # if detected_shape != "triangle" and detected_shape != "not":
+                    if detected_shape != "not":
                         big_blobs.append(blob)
 
                     img.draw_string(blob.x(), blob.y(), detected_shape[0], color=(255, 0, 255))
@@ -1445,34 +1446,85 @@ def init_sensor_target(tracking_type:int, framesize=FRAME_SIZE, windowsize=None)
             sensor.ioctl(sensor.IOCTL_SET_FOV_WIDE, True)
             sensor.__write_reg(0xfe, 0b00000000) # change to registers at page 0
             sensor.__write_reg(0x80, 0b01111110) # [7] reserved, [6] gamma enable, [5] CC enable,
-            if ADVANCED_SENSOR_SETUP:
-                sensor.__write_reg(0x80, 0b01101110)    # [7] reserved, [6] gamma enable, [5] CC enable,
+            if ADVANCED_SENSOR_SETUP and TARGET_COLOR == TARGET_ORANGE:
+                sensor.__write_reg(0xfe, 0) # change to registers at page 0
+                sensor.__write_reg(0x80, 0b01111110)    # [7] reserved, [6] gamma enable, [5] CC enable,
                                                         # [4] Edge enhancement enable
-                                                        # ------------------------------------------------
-                                                        # WARNING: necessary or unusable image will occur:
-                                                        # [3] Interpolation enable,
-                                                        # ------------------------------------------------
-                                                        # [2] DN enable, [1] DD enable,
-                                                        # ------------------------------------------------
-                                                        # WARNING: extremely recommended to disable:
+                                                        # [3] Interpolation enable, [2] DN enable, [1] DD enable,
                                                         # [0] Lens-shading correction enable - gives you uneven
                                                         #                                      shade in the dark
                                                         #                                      badly!!!!!
-                                                        # ------------------------------------------------
                 sensor.__write_reg(0x81, 0b01010100)    # [7] BLK dither mode, [6] low light Y stretch enable
+                                                        # [5] skin detection enable, [4] reserved, [3] new skin mode
+                                                        # [2] autogray enable, [1] reserved, [0] BFF test image mode
+                sensor.__write_reg(0x82, 0b00000100)    # [2] ABS enable, [1] AWB enable
+                #sensor.__write_reg(0x87, 0b00000001)    # [0] auto_edge_effect
+                sensor.__write_reg(0x9a, 0b00001111)    # [3] smooth Y, [2] smooth Chroma,
+                                                        # [1] neighbor average mode, [0] subsample extend opclk
+                sensor.skip_frames(2)
+                print("block enabling done")
+
+                # Edge enhancements
+                sensor.__write_reg(0xfe, 2)             # change to registers at page 2
+                sensor.__write_reg(0x90, 0b11101101)    # [7]edge1_mode, [6]HP3_mode, [5]edge2_mode, [4]Reserved,
+                                                        # [3]LP_intp_en, [2]LP_edge_en, [1]NA, [0] half_scale_mode_en
+                sensor.__write_reg(0x91, 0b11000000)    # [7]HP_mode1, [6]HP_mode2,
+                                                        # [5]only 2 direction - only two direction H and V, [4]NA
+                                                        # [3]only_defect_map, [2]map_dir, [1:0]reserved
+                sensor.__write_reg(0x96, 0b00001100)    # [3:2] edge leve
+                sensor.__write_reg(0x97, 0x88)          # [7:4] edge1 effect, [3:0] edge2 effect
+                sensor.__write_reg(0x9b, 0b00100010)    # [7:4] edge1 threshold, [3:0] edge2 threshold
+                sensor.skip_frames(2)
+                print("edge enhancement done")
+
+                # color correction -- this is very tricky: the color shifts on the color wheel it seems
+                sensor.__write_reg(0xfe, 2) # change to registers at page 2
+                # WARNING: uncomment the two lines to invert the color
+                #sensor.__write_reg(0xc1, 0x80)          # CC_CT1_11, feels like elements in a matrix
+                #sensor.__write_reg(0xc5, 0x80)          # CC_CT1_22 , feels like elements in a matrix
+                print("color correction setup done")
 
                 # ABS - anti-blur
                 sensor.__write_reg(0xfe, 1)             # change to registers at page 1
                 sensor.__write_reg(0x9a, 0b11110111)    # [7:4] add dynamic range, [2:0] abs adjust every frame
                 sensor.__write_reg(0x9d, 0xff)          # [7:0] Y stretch limit
+                sensor.skip_frames(2)
+                print("anti-blur setup done")
+
+                # color settings -- AWB
+                # Ranting about the trickiness of the setup:
+                # Even the auto white balance is disabled, the AWB gains will persist to
+                # take effect. Although the correcponding registers are read-only in the
+                # document, they are actually manually writeable, and such writings are
+                # effective. On top of these messes, another set of registers that are
+                # R/W have the exact same effect on the RGB gains, but they are not
+                # controlled by the AWB.
+                sensor.set_auto_exposure(False)
+                sensor.set_auto_whitebal(False) # no, the gain_rgb_db does not work
+                # # reset RGB auto gains
+                # sensor.__write_reg(0xb3, 64)    # reset R auto gain
+                # sensor.__write_reg(0xb4, 64)    # reset G auto gain
+                # sensor.__write_reg(0xb5, 64)    # reset B auto gain
+                # sensor.__write_reg(0xfe, 0)     # change to registers at page 0
+                #                                 # manually set RGB gains to fix color/white balance
+                # sensor.__write_reg(0xad, int(R_GAIN))    # R gain ratio
+                # sensor.__write_reg(0xae, int(G_GAIN))    # G gain ratio
+                # sensor.__write_reg(0xaf, int(B_GAIN))    # B gain ratio
+                sensor.set_auto_exposure(True)
+                sensor.set_auto_whitebal(True)
+                sensor.__write_reg(0xfe, 1) # change to registers at page 1
+                sensor.__write_reg(0x13, 96) # brightness level
+                # sensor.__write_reg(0xb2, 255)   # post-gain, default 64
+                sensor.skip_frames(2)
+                print("AWB Gain setup done.")
 
                 # color setup - saturation
-                sensor.__write_reg(0xfe, 2)             # change to registers at page 2
-                sensor.__write_reg(0xd0, SATURATION)    # change global saturation - default 64
-                sensor.__write_reg(0xd1, 48)            # Cb saturation - default 48
-                sensor.__write_reg(0xd2, 48)            # Cr saturation - default 48
-                sensor.__write_reg(0xd3, CONTRAST)      # contrast - default 48
-                sensor.__write_reg(0xd5, 0)             # luma offset - default 0 (sign + 7 format)
+                sensor.__write_reg(0xfe, 2)     # change to registers at page 2
+                sensor.__write_reg(0xd0, 72)    # change global saturation,
+                sensor.__write_reg(0xd1, 48)    # Cb saturation
+                sensor.__write_reg(0xd2, 48)    # Cr saturation
+                sensor.__write_reg(0xd3, 20)    # contrast
+                sensor.__write_reg(0xd5, 0)     # luma offset
         elif board == OPENMV:
             pass
 
@@ -1560,15 +1612,17 @@ def init_sensor_target(tracking_type:int, framesize=FRAME_SIZE, windowsize=None)
             sensor.__write_reg(0xae, int(G_GAIN))    # G gain ratio
             sensor.__write_reg(0xaf, int(B_GAIN))    # B gain ratio
             sensor.set_auto_exposure(True)
+            sensor.__write_reg(0xfe, 1) # change to registers at page 1
+            sensor.__write_reg(0x13, 120) # brightness level
             # sensor.__write_reg(0xb2, 255)   # post-gain, default 64
             sensor.skip_frames(2)
             print("AWB Gain setup done.")
 
             # color setup - saturation
             sensor.__write_reg(0xfe, 2)     # change to registers at page 2
-            sensor.__write_reg(0xd0, 96)    # change global saturation,
-            sensor.__write_reg(0xd1, 48)    # Cb saturation
-            sensor.__write_reg(0xd2, 48)    # Cr saturation
+            sensor.__write_reg(0xd0, 72)    # change global saturation,
+            sensor.__write_reg(0xd1, 56)    # Cb saturation
+            sensor.__write_reg(0xd2, 56)    # Cr saturation
             sensor.__write_reg(0xd3, 40)    # contrast
             sensor.__write_reg(0xd5, 0)     # luma offset
         elif board == OPENMV:
@@ -1944,7 +1998,7 @@ if __name__ == "__main__":
                 if board == NICLA:
                     msg = IBus_message([flag, x_value, y_roi, w_roi, h_roi,
                                         x_value, y_value, w_value, h_value, 8])
-                    print(x_value, y_roi, w_roi, h_roi, x_value, y_value, w_value, h_value)
+                    # print(x_value, y_roi, w_roi, h_roi, x_value, y_value, w_value, h_value)
                 elif board == OPENMV:
                     msg = IBus_message([flag, FRAME_PARAMS[2] - x_value, FRAME_PARAMS[3] - y_roi, w_roi, h_roi,
                                         FRAME_PARAMS[2] - x_value, FRAME_PARAMS[3] - y_value, w_value, h_value, 9999])
@@ -1978,12 +2032,12 @@ if __name__ == "__main__":
                 if res:
                     mode, tracker = res
             elif uart_input[-1] == 0x80 and mode == 0:
-                # TARGET_COLOR = TARGET_YELLOW
+                TARGET_COLOR = TARGET_YELLOW
                 res = mode_initialization(1, mode)
                 if res:
                     mode, tracker = res
             elif uart_input[-1] == 0x81 and mode == 0:
-                # TARGET_COLOR = TARGET_YELLOW
+                TARGET_COLOR = TARGET_ORANGE
                 res = mode_initialization(1, mode)
                 if res:
                     mode, tracker = res
