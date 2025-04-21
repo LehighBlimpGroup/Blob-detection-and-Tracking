@@ -2,6 +2,10 @@
 import sensor
 NICLA = 1
 OPENMV = 2
+MODE = 0 # 0 for balloon detection and 1 for yellow goal, 2 for orange goal, 3 for demon slayer
+TARGET_ORANGE = [(30, 100, 35, 57, 12, 42)]
+TARGET_YELLOW = [(46, 100, -25, -5, 30, 50)]
+TARGET_COLOR = TARGET_ORANGE
 board = NICLA
 if sensor.get_id() == sensor.GC2145:
     board = NICLA
@@ -58,7 +62,7 @@ elif board == OPENMV:
 if board == OPENMV:
     R_GAIN, G_GAIN, B_GAIN = [62, 60, 65]
 elif board == NICLA:
-    R_GAIN, G_GAIN, B_GAIN = [70, 63, 107]# [70, 66, 115]
+    R_GAIN, G_GAIN, B_GAIN = [89, 64, 98]
 
 ########## NOTE: MACROS for balloon detection #############
 # Grid setup
@@ -77,6 +81,7 @@ L_MIN = -2
 
 # print the stats in a 3x3 cell - for balloon color data collection
 PRINT_CORNER = False
+
 PLOT_METRIC = not PRINT_CORNER
 
 # whether combine detction of green and purple as target balloons
@@ -87,18 +92,19 @@ COMBINE_TARGETS = False
 # to be used with
 if board == OPENMV:
     COLOR_DATA = {
-        "purple": [[23.466619318181817, -37.651684253246756] ,  [[0.06919880051095641, 0.0604094481518413], [0.06040944815184131, 0.06269542299302117]]],
-        "green": [[-20.875354509359045, 8.56792399319342] ,  [[0.060236044299697374, 0.04894408879238302], [0.04894408879238302, 0.0646636883366453]]],
-        "blue": [[-0.08622366288492707, -21.085143165856294] ,  [[0.405955173972352, 0.11825244006317702], [0.11825244006317703, 0.04203593483634022]]],
+        "purple": [[27.34861111111111, -38.740833333333335] ,  [[0.09918207021764752, 0.085496507295171], [0.085496507295171, 0.1028412261868471]]],
+        "green": [[-24.920216362407032, 26.45368492224476] ,  [[0.040444838497732664, 0.02957229352925813], [0.029572293529258133, 0.037825719949109465]]],
+        "blue": [[12.729521492295214, -31.366991078669912] ,  [[0.16470940304506118, 0.09000633419781381], [0.0900063341978138, 0.05497130484414516]]],
         "red": [[35.494601328903656, 32.24958471760797] ,  [[0.24644136648942605, -0.2762493355717791], [-0.2762493355717791, 0.3291565103824226]]]
     } # openmv
 elif board == NICLA:
     COLOR_DATA = {
-        "purple": [[23.466619318181817, -37.651684253246756] ,  [[0.06919880051095641, 0.0604094481518413], [0.06040944815184131, 0.06269542299302117]]],
-        "green": [[-18.904589808456812, 10.752168413444164] ,  [[0.030615056211598223, 0.013098194967777699], [0.013098194967777699, 0.02603108355126545]]],
-        "blue": [[13.596253902185223, -33.79474505723205] ,  [[0.13004108243366663, 0.06653979100910323], [0.06653979100910323, 0.04018167036620918]]],
-        "red": [[53.568024861878456, 11.724102209944752] ,  [[0.03232165802049636, -0.021282694514752485], [-0.021282694514752485, 0.03727551356108449]]]
-    } # nicla
+    "purple": [[27.34861111111111, -38.740833333333335] ,  [[0.09918207021764752, 0.085496507295171], [0.085496507295171, 0.1028412261868471]]],
+    "green": [[-24.920216362407032, 26.45368492224476] ,  [[0.040444838497732664, 0.02957229352925813], [0.029572293529258133, 0.037825719949109465]]],
+    "blue": [[12.729521492295214, -31.366991078669912] ,  [[0.16470940304506118, 0.09000633419781381], [0.0900063341978138, 0.05497130484414516]]],
+    "seats": [[-12.070182094081943, 4.104704097116843] ,  [[0.03596690418504103, -0.012593131547672854], [-0.012593131547672852, 0.04936046463011961]]]
+  } # nicla
+
 
 
 # color detection sensitivities:
@@ -106,25 +112,28 @@ elif board == NICLA:
 # [1]: for filtering out uniform colors such as a light source, higher -> less positive detection
 # [2]: for filtering out messy background/environment, lower -> less positive detection
 COLOR_SENSITIVITY = {
-    "purple": [1.2, 3.0, 18.0],
-    "green": [1.2, 3.0, 22.0],
-    "blue": [4.0, 3.0, 22.0],
-    "red": [3.0, 3.0, 24.0]
+    "purple": [1.6, 3.0, 24.0], #1.2
+    "green": [2.0, 5.0, 22.0], #1.2
+    "blue": [2.0, 3.0, 22.0], #4
+    "red": [1.0, 3.0, 24.0],
+    "seats": [2.0, 2.0, 30.0]
 }
 
 # range of the L channel values that guarantee valid detection
 L_RANGE = {
-    "purple": [10, 55],
-    "green": [15, 70],
+    "purple": [8, 60],
+    "green": [10, 80],
     "blue": [5, 60],
-    "red": [2, 80]
+    "red": [5, 80],
+    "seats": [5, 70]
 }
 # the minimum value given by a cell that we consider a positive detection
 COLOR_CONFIDENCE = 0.3
 
 # target balloon colors {color id: (RGB value for visulization)}
 COLOR_TARGET = {"purple": (255,0,255),
-                "green": (0,255,0),}
+                "green": (0, 255, 0),
+                }
 
 COLOR_DEMONS = {"red": (255,0,0)}
 
@@ -133,10 +142,13 @@ COLOR_PEER = {} # {"red": (255, 0, 0)}
 
 # parameters for removing noises and neighbor colors
 NEIGHBOR_REMOVAL = True
-NEIGHBOR_REMOVAL_FACTOR = 5.0
+NEIGHBOR_REMOVAL_FACTOR = {"blue": 8.0,
+                           "seats": 8.0}
 # NEIGHBOR FORMAT: {$neighbor: ($target, RGB value for visulization)}
 if NEIGHBOR_REMOVAL:
-    COLOR_NEIGHBOR = {"blue": ("purple", (0,0,255))}
+    COLOR_NEIGHBOR = {"blue": ("purple", (0,0,255)),
+                      "seats": ("green", (0, 255, 255))} #ISOLATE BLUE FROM PURPLE DETECTION
+    # ==> if we have blue falsely detected as purple
 else:
     COLOR_NEIGHBOR = {}
 
@@ -188,10 +200,6 @@ GF_SIZE = 0.3 # The gain factor for the size
 # setting FF_POSITION, FF_SIZE to 0 and GF_POSITION, GF_SIZE to 1
 # will make the tracking identical to the current detection
 frame_rate = 80 # target framerate that is a lie
-TARGET_ORANGE = [(28, 85, 20, 50, 10, 36)] #(12, 87, -9, 62, 15, 50)
-TARGET_COLOR2 = [(31, 100, 21, 54, 20, 47)]
-TARGET_YELLOW = [(27, 100, -39, -15, 22, 45)] #[(40, 67, -31, -15, 27, 55)]
-TARGET_COLOR = TARGET_YELLOW
 WAIT_TIME_US = 1000000//frame_rate
 
 SATURATION = 64 # global saturation for goal detection mode - not affected by ADVANCED_SENSOR_SETUP, defeult 64
@@ -526,7 +534,7 @@ class BalloonTracker:
                 metric = detector.update_filter()
             else:
                 detector.P = detector.metric
-            if PLOT_METRIC:
+            if PLOT_METRIC and detector.detector_type != "N":
                 grid.plot_metric(metric, detector.rgb)
 
         if PRINT_CORNER:
@@ -545,7 +553,7 @@ class BalloonTracker:
                     true_positive_targets[color] = detector.P
             elif detector.detector_type == "N":
                 neighbor_target = detector.neighbor
-                true_positive_targets[neighbor_target] = [t if (t > NEIGHBOR_REMOVAL_FACTOR*n) else 0 for t,n in zip(self.detectors[neighbor_target].P, detector.P)]
+                true_positive_targets[neighbor_target] = [t if (t > NEIGHBOR_REMOVAL_FACTOR[color]*n) else 0 for t,n in zip(self.detectors[neighbor_target].P, detector.P)]
 
         # decide which color to track
         if self.balloon_color == None:
@@ -2045,7 +2053,7 @@ def detector_initialization(mode):
 if __name__ == "__main__":
     # Necessary for both modes
     clock = time.clock()
-    mode = 0 # 0 for balloon detection and 1 for yellow goal, 2 for orange goal, 3 for demon slayer
+    mode = MODE  # 0 for balloon detection and 1 for yellow goal, 2 for orange goal, 3 for demon slayer
 
     # Initialize inter-board communication
     # time of flight sensor initialization
