@@ -3,9 +3,13 @@ import sensor
 NICLA = 1
 OPENMV = 2
 MODE = 0 # 0 for balloon detection and 1 for yellow goal, 2 for orange goal, 3 for demon slayer
-TARGET_ORANGE = [(30, 100, 35, 57, 12, 42)]
+TARGET_ORANGE = [(36, 91, 26, 46, 6, 22)]
 TARGET_YELLOW = [(46, 100, -25, -5, 30, 50)]
-TARGET_COLOR = TARGET_ORANGE
+if MODE == 1:
+    TARGET_COLOR = TARGET_YELLOW
+else:
+    TARGET_COLOR = TARGET_ORANGE
+BALL_COLOR = 2 # 0 for purple, 1 for green, 2 for both
 board = NICLA
 if sensor.get_id() == sensor.GC2145:
     board = NICLA
@@ -26,7 +30,6 @@ import math
 from machine import Pin
 import omv
 import random
-import asyncio
 from ulab import numpy as np
 
 # night mode:
@@ -47,6 +50,8 @@ elif FRAME_SIZE == sensor.QVGA:
     FRAME_PARAMS = [0, 0, 320, 240]
 elif FRAME_SIZE == sensor.HQVGA:
     FRAME_PARAMS = [0, 0, 240, 160]
+elif FRAME_SIZE == sensor.QQVGA:
+    FRAME_PARAMS = [0, 0, 160, 120]
 
 if board == NICLA:
     led_red = LED(1)
@@ -62,12 +67,12 @@ elif board == OPENMV:
 if board == OPENMV:
     R_GAIN, G_GAIN, B_GAIN = [62, 60, 65]
 elif board == NICLA:
-    R_GAIN, G_GAIN, B_GAIN = [89, 64, 98]
+    R_GAIN, G_GAIN, B_GAIN = [86, 64, 94]
 
 ########## NOTE: MACROS for balloon detection #############
 # Grid setup
-N_ROWS = 14
-N_COLS = 21
+N_ROWS = 10
+N_COLS = 15
 
 random.seed(time.time())
 NUM_CELLS = 2
@@ -81,7 +86,6 @@ L_MIN = -2
 
 # print the stats in a 3x3 cell - for balloon color data collection
 PRINT_CORNER = False
-
 PLOT_METRIC = not PRINT_CORNER
 
 # whether combine detction of green and purple as target balloons
@@ -95,14 +99,15 @@ if board == OPENMV:
         "purple": [[27.34861111111111, -38.740833333333335] ,  [[0.09918207021764752, 0.085496507295171], [0.085496507295171, 0.1028412261868471]]],
         "green": [[-24.920216362407032, 26.45368492224476] ,  [[0.040444838497732664, 0.02957229352925813], [0.029572293529258133, 0.037825719949109465]]],
         "blue": [[12.729521492295214, -31.366991078669912] ,  [[0.16470940304506118, 0.09000633419781381], [0.0900063341978138, 0.05497130484414516]]],
-        "red": [[35.494601328903656, 32.24958471760797] ,  [[0.24644136648942605, -0.2762493355717791], [-0.2762493355717791, 0.3291565103824226]]]
+        "red": [[52.757587253414265, 26.751896813353564] ,  [[0.03800775582597326, -0.053402105292510056], [-0.05340210529251006, 0.0930603694066072]]]
     } # openmv
 elif board == NICLA:
     COLOR_DATA = {
-    "purple": [[27.34861111111111, -38.740833333333335] ,  [[0.09918207021764752, 0.085496507295171], [0.085496507295171, 0.1028412261868471]]],
+    "purple": [[24.39212432106216, -36.593995171997584] ,  [[0.0898248203739352, 0.07819498279132771], [0.07819498279132771, 0.08463414662489165]]],
     "green": [[-24.920216362407032, 26.45368492224476] ,  [[0.040444838497732664, 0.02957229352925813], [0.029572293529258133, 0.037825719949109465]]],
-    "blue": [[12.729521492295214, -31.366991078669912] ,  [[0.16470940304506118, 0.09000633419781381], [0.0900063341978138, 0.05497130484414516]]],
-    "seats": [[-12.070182094081943, 4.104704097116843] ,  [[0.03596690418504103, -0.012593131547672854], [-0.012593131547672852, 0.04936046463011961]]]
+    "blue": [[12.759984338292874, -30.990602975724354] ,  [[0.17952320391970455, 0.09195896759479524], [0.09195896759479526, 0.05345077343021924]]],
+    "seats": [[-32.776408450704224, 16.63600352112676] ,  [[0.191772813063005, 0.317209993267715], [0.31720999326771504, 0.6354321150404447]]],
+    "stairs": [[-11.964467005076141, 18.473096446700506] ,  [[0.023580949200383918, -0.016959606917639727], [-0.01695960691763973, 0.04449148686344602]]]
   } # nicla
 
 
@@ -112,11 +117,12 @@ elif board == NICLA:
 # [1]: for filtering out uniform colors such as a light source, higher -> less positive detection
 # [2]: for filtering out messy background/environment, lower -> less positive detection
 COLOR_SENSITIVITY = {
-    "purple": [1.6, 3.0, 24.0], #1.2
-    "green": [2.0, 5.0, 22.0], #1.2
-    "blue": [2.0, 3.0, 22.0], #4
+    "purple": [1.3, 3.0, 24.0], #1.2
+    "green": [0.5, 3.0, 16.0], #1.2
+    "blue": [2.0, 3.0, 24.0], #4
     "red": [1.0, 3.0, 24.0],
-    "seats": [2.0, 2.0, 30.0]
+    "seats": [2.0, 2.0, 30.0],
+    "stairs": [3.0, 2.0, 30.0]
 }
 
 # range of the L channel values that guarantee valid detection
@@ -125,15 +131,27 @@ L_RANGE = {
     "green": [10, 80],
     "blue": [5, 60],
     "red": [5, 80],
-    "seats": [5, 70]
+    "seats": [5, 70],
+    "stairs": [5, 70]
 }
 # the minimum value given by a cell that we consider a positive detection
 COLOR_CONFIDENCE = 0.3
 
 # target balloon colors {color id: (RGB value for visulization)}
-COLOR_TARGET = {"purple": (255,0,255),
-                "green": (0, 255, 0),
-                }
+if BALL_COLOR == 0:
+    COLOR_TARGET = {
+        "purple": (255,0,255),
+    }
+elif BALL_COLOR == 1:
+    COLOR_TARGET = {
+        "green": (0, 255, 0),
+    }
+elif BALL_COLOR == 2:
+    COLOR_TARGET = {
+        "purple": (255,0,255),
+        "green": (0, 255, 0),
+    }
+
 
 COLOR_DEMONS = {"red": (255,0,0)}
 
@@ -142,13 +160,28 @@ COLOR_PEER = {} # {"red": (255, 0, 0)}
 
 # parameters for removing noises and neighbor colors
 NEIGHBOR_REMOVAL = True
-NEIGHBOR_REMOVAL_FACTOR = {"blue": 8.0,
-                           "seats": 8.0}
+NEIGHBOR_REMOVAL_FACTOR = {
+    "blue": 8.0,
+    "seats": 8.0,
+    "stairs": 8.0
+}
 # NEIGHBOR FORMAT: {$neighbor: ($target, RGB value for visulization)}
 if NEIGHBOR_REMOVAL:
-    COLOR_NEIGHBOR = {"blue": ("purple", (0,0,255)),
-                      "seats": ("green", (0, 255, 255))} #ISOLATE BLUE FROM PURPLE DETECTION
-    # ==> if we have blue falsely detected as purple
+    if BALL_COLOR == 0:
+        COLOR_NEIGHBOR = {
+            "blue": ("purple", (0,0,255)),
+        }
+    elif BALL_COLOR == 1:
+        COLOR_NEIGHBOR = {
+            "seats": ("green", (0, 255, 255)),
+            "stairs": ("green", (0, 255, 255))
+        }
+    elif BALL_COLOR == 2:
+        COLOR_NEIGHBOR = {
+            "blue": ("purple", (0,0,255)),
+            "seats": ("green", (0, 255, 255)),
+            "stairs": ("green", (0, 255, 255))
+        }
 else:
     COLOR_NEIGHBOR = {}
 
@@ -1412,7 +1445,10 @@ class GoalTracker:
                 # print(x, y, w, h)
                 if w < 5 or h < 5:
                     continue
-                s = img.get_statistics(roi=(math.floor(blob[0] + 0.4*blob[2]), math.floor(blob[1] + 0.4*blob[3]), math.ceil(0.2*blob[2]), math.ceil(0.2*blob[3])))
+                s = img.get_statistics(roi=(math.floor(blob[0] + 0.4*blob[2]),
+                                            math.floor(blob[1] + 0.4*blob[3]),
+                                            math.ceil(0.2*blob[2]),
+                                            math.ceil(0.2*blob[3])))
 
                 # Cache the statistical values
                 l_mean = s.l_mean()
@@ -1423,8 +1459,8 @@ class GoalTracker:
                 b_stdev = s.b_stdev()
                 stats_array = np.array([l_mean, a_mean, b_mean, l_stdev, a_stdev, b_stdev], dtype=np.float)
                 dist = solid_red_detector.distance_mahalanobis(stats_array)
-                # print(dist)
-                if dist > 15:
+                print(dist, a_stdev, b_stdev)
+                if dist > 10:
                     final_list_blobs.append(blob)
             list_of_blob = final_list_blobs
 
@@ -1455,7 +1491,7 @@ class GoalTracker:
         # sensor.dealloc_extra_fb()
         big_blobs=[]
         for blob in list_of_blob:
-            if blob.area() > 10 and line_length(blob.minor_axis_line())> 3:
+            if blob.area() > 8 and line_length(blob.minor_axis_line()) > 3:
                 # if self.tracked_blob != None and self.num_blob_hist > 5:
                 #     big_blobs.append(blob)
                 # else:
@@ -1491,7 +1527,6 @@ class GoalTracker:
         # img.draw_cross(blob.cx(), blob.cy())
         # img.draw_keypoints([(blob.cx(), blob.cy(), int(math.degrees(blob.rotation())))], size=20)
         return img, big_blobs
-
 
     def sensor_sleep(self, last_time_stamp) -> None:
         # @description: Wait for the sensor for some time from the last snapshot to avoid a partial new image
@@ -2079,7 +2114,7 @@ if __name__ == "__main__":
         detector_type="P",
         max_dist=None, std_range=[0.0, 120], light_range=[0, 100],
         rgb=(255, 255, 0), mahalanobis=True,
-        mu = [34.25762599469496, 11.318965517241379], sigma_inv = [[0.03360540077045226, -0.06386258948911488], [-0.06386258948911488, 0.16007716722694557]],
+        mu = [52.757587253414265, 26.751896813353564], sigma_inv = [[0.03800775582597326, -0.053402105292510056], [-0.05340210529251006, 0.0930603694066072]],
         decay=2.0,
         neighbor=None
     )
